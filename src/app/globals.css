@@ -1,0 +1,73 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #f6f6fb;
+  --surface: #ffffff;
+  --surface-2: #f0f0f7;
+  --border: #e3e3ee;
+  --text: #16162a;
+  --muted: #6b6b85;
+  --brand: #5b4bdb;
+  --brand-2: #c0399a;
+  --brand-soft: #ecebfd;
+  --ok: #138a52;
+  --ok-soft: #e4f6ec;
+  --warn: #a86400;
+  --warn-soft: #fff3df;
+  --bad: #c3283a;
+  --bad-soft: #fde8eb;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e0e18;
+    --surface: #17172a;
+    --surface-2: #1f1f36;
+    --border: #2c2c48;
+    --text: #ececf8;
+    --muted: #9a9ab8;
+    --brand: #8b7dff;
+    --brand-2: #ff6ec7;
+    --brand-soft: #25224a;
+    --ok: #4ad295;
+    --ok-soft: #12301f;
+    --warn: #ffb547;
+    --warn-soft: #33260e;
+    --bad: #ff6b7d;
+    --bad-soft: #3a1820;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-brand: var(--brand);
+  --color-brand-2: var(--brand-2);
+  --color-brand-soft: var(--brand-soft);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-bad: var(--bad);
+  --color-bad-soft: var(--bad-soft);
+}
+
+html, body {
+  background: var(--bg);
+  color: var(--text);
+}
+
+body {
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Noto Sans", "Noto Sans Thai", "PingFang SC", "Hiragino Sans", "Malgun Gothic", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.brand-gradient {
+  background: linear-gradient(120deg, var(--brand), var(--brand-2));
+}
+
+.tabular { font-variant-numeric: tabular-nums; }
