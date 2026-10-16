@@ -74,9 +74,10 @@ agent warns the student and advises them to call the university on a known numbe
 | `list_payees` | L0 | Masked account numbers and verification status |
 | `list_pending_actions` | L0 | Actions waiting for the user |
 | `report_security_concern` | L0 | Writes a flagged entry to the audit log |
-| `get_paperwork_checklist` | L0 | Immigration and university steps for the destination, student type and stay length, with official links and progress |
+| `get_study_abroad_guide` | L0 | Checklist for the destination, student type and stay length across 10 topics (paperwork, SIM & internet, banking, housing, health, transport, apps, safety, academics, daily life), filterable by stage and topic, with official links and progress |
 | `web_search` (server tool) | L0 | Finds the host university's official page; at most 3 searches per turn |
-| `mark_paperwork_step` | L1 | Ticks a checklist step when the student says it's done (progress only) |
+| `find_places_near_campus` | L0 | Demo places near campus with ratings, price vs. meal budget (monthly food budget ÷ 60), and Google Maps links |
+| `mark_guide_step` | L1 | Ticks a checklist step when the student says it's done (progress only) |
 | `set_budget` | L1 | Sets a category budget |
 | `propose_currency_conversion` | L2 | Conversion between the user's own accounts |
 | `propose_transfer` | L2 | Payment to a saved payee through a chosen rail |

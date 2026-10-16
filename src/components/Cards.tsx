@@ -1,9 +1,12 @@
 "use client";
 import { formatMoney, type CurrencyCode } from "@/lib/countries";
+import { Check, CircleCheck, OctagonX, ShieldAlert } from "lucide-react";
+import { Ic } from "./icons";
 import { CATEGORY_LABELS, type Dict } from "@/lib/i18n";
 import type { Lang, LedgerState, PendingAction, RiskLevel } from "@/lib/ledger";
 import type { UiCard } from "@/lib/tools";
-import { PaperworkCard } from "./Paperwork";
+import { GuideCard } from "./Guide";
+import { PlacesCard } from "./Places";
 
 const riskStyle: Record<RiskLevel, string> = {
   low: "bg-ok-soft text-ok",
@@ -29,49 +32,57 @@ export function PendingCard({
 }: { p: PendingAction; d: Dict; busy: boolean; onDecide: (id: string, approve: boolean) => void }) {
   const mins = Math.max(0, Math.round((Date.parse(p.expiresAt) - Date.now()) / 60_000));
   return (
-    <div className={`rounded-2xl border-2 bg-surface p-4 ${p.risk === "high" ? "border-bad" : "border-brand"}`}>
-      <div className="mb-2 flex flex-wrap items-center gap-2">
-        <span className="text-sm font-bold text-brand">{d.pendingTitle}</span>
-        <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs text-muted">{d.tiers[p.tier]}</span>
+    // Styled as a boarding pass: details above the perforation, the decision stub below.
+    <div className={`overflow-hidden rounded-2xl border bg-surface ${p.risk === "high" ? "border-bad" : "border-border"}`}>
+      <div className={`flex flex-wrap items-center gap-2 px-4 py-2.5 ${p.risk === "high" ? "bg-bad-soft" : "bg-brand-soft"}`}>
+        <span className={`text-sm font-semibold ${p.risk === "high" ? "text-bad" : "text-brand"}`}>{d.pendingTitle}</span>
+        <span className="ml-auto text-xs text-muted">{d.tiers[p.tier]}</span>
         <RiskBadge risk={p.risk} d={d} />
       </div>
-      <p className="font-medium">{p.summary}</p>
-      {p.agentReason && <p className="mt-1 text-sm text-muted">{p.agentReason}</p>}
-      {p.riskReasons.length > 0 && (
-        <ul className={`mt-3 space-y-1 rounded-xl p-3 text-sm ${p.risk === "high" ? "bg-bad-soft" : "bg-surface-2"}`}>
-          {p.riskReasons.map((r, i) => <li key={i}>⚠️ {r}</li>)}
-        </ul>
-      )}
-      <div className="mt-3 flex items-center gap-2">
+      <div className="px-4 pb-4 pt-3">
+        <p className="text-[15px] font-semibold leading-snug">{p.summary}</p>
+        {p.agentReason && <p className="mt-1 text-sm text-muted">{p.agentReason}</p>}
+        {p.riskReasons.length > 0 && (
+          <ul className="mt-3 space-y-1.5 text-sm">
+            {p.riskReasons.map((r, i) => (
+              <li key={i} className={`border-l-2 pl-3 ${p.risk === "high" ? "border-bad" : "border-warn"}`}>{r}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <div className="perforation mx-4" />
+      <div className="flex items-center gap-2 px-4 py-3">
         <button
           disabled={busy}
           onClick={() => onDecide(p.id, true)}
-          className="brand-gradient rounded-xl px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+          className="rounded-lg bg-accent px-5 py-2 text-sm font-semibold text-on-accent disabled:opacity-50"
         >
           {d.approve}
         </button>
         <button
           disabled={busy}
           onClick={() => onDecide(p.id, false)}
-          className="rounded-xl border border-border px-4 py-2 text-sm font-semibold disabled:opacity-50"
+          className="rounded-lg px-3 py-2 text-sm font-semibold text-muted hover:text-text disabled:opacity-50"
         >
           {d.reject}
         </button>
-        <span className="ml-auto text-xs text-muted">{d.expiresIn} {mins} {d.min}</span>
+        <span className="tabular ml-auto text-xs text-muted">{d.expiresIn} {mins} {d.min}</span>
       </div>
     </div>
   );
 }
 
 export function CardView({
-  card, state, lang, d, busy, onDecide, onOpenPaperwork,
+  card, state, lang, d, busy, onDecide, onOpenGuide, onOpenPlaces,
 }: {
   card: UiCard; state: LedgerState; lang: Lang; d: Dict; busy: boolean;
-  onDecide: (id: string, approve: boolean) => void; onOpenPaperwork: () => void;
+  onDecide: (id: string, approve: boolean) => void; onOpenGuide: () => void; onOpenPlaces: () => void;
 }) {
   switch (card.type) {
-    case "paperwork":
-      return <PaperworkCard state={state} stage={card.data.stage} d={d} onOpen={onOpenPaperwork} />;
+    case "places":
+      return <PlacesCard state={state} lang={lang} d={d} ids={card.data.ids} onOpen={onOpenPlaces} />;
+    case "checklist":
+      return <GuideCard state={state} stage={card.data.stage} topic={card.data.topic} d={d} onOpen={onOpenGuide} />;
     case "pending": {
       const p = state.pending.find((x) => x.id === card.data.id);
       if (!p) return null; // already decided or expired; the outcome shows in the chat
@@ -80,7 +91,7 @@ export function CardView({
     case "blocked":
       return (
         <div className="rounded-2xl border border-bad bg-bad-soft p-4 text-sm">
-          <p className="font-bold text-bad">⛔ {d.blockedTitle}</p>
+          <p className="font-semibold text-bad"><Ic icon={OctagonX} className="mr-1.5" />{d.blockedTitle}</p>
           <p className="mt-1 font-medium">{card.data.summary}</p>
           <ul className="mt-2 space-y-1">{card.data.reasons.map((r, i) => <li key={i}>• {r}</li>)}</ul>
         </div>
@@ -88,13 +99,13 @@ export function CardView({
     case "executed":
       return (
         <div className="rounded-2xl border border-ok bg-ok-soft p-3 text-sm">
-          <span className="font-bold text-ok">✓ {d.executedTitle}:</span> {card.data.summary}
+          <span className="font-semibold text-ok"><Ic icon={CircleCheck} className="mr-1.5" />{d.executedTitle}:</span> {card.data.summary}
         </div>
       );
     case "security":
       return (
         <div className="rounded-2xl border border-bad bg-bad-soft p-3 text-sm">
-          <p className="font-bold text-bad">🛡️ {d.securityTitle}</p>
+          <p className="font-semibold text-bad"><Ic icon={ShieldAlert} className="mr-1.5" />{d.securityTitle}</p>
           <p className="mt-1">{card.data.description}</p>
         </div>
       );
@@ -104,7 +115,7 @@ export function CardView({
       const color = q.trend === "better_than_usual" ? "text-ok" : q.trend === "worse_than_usual" ? "text-bad" : "text-muted";
       return (
         <div className="rounded-2xl border border-border bg-surface p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted">{d.fxTitle}</p>
+          <p className="text-sm font-semibold text-muted">{d.fxTitle}</p>
           <p className="tabular mt-1 text-lg font-bold">
             {formatMoney(q.from, q.amount, lang)} → {formatMoney(q.to, q.receive, lang)}
           </p>
@@ -120,7 +131,7 @@ export function CardView({
       const best = options.find((o) => o.eligible);
       return (
         <div className="rounded-2xl border border-border bg-surface p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted">
+          <p className="text-sm font-semibold text-muted">
             {d.routesTitle} · {d.receive} {formatMoney(card.data.receive, card.data.amount, lang)}
           </p>
           <div className="mt-2 space-y-2">
@@ -131,14 +142,15 @@ export function CardView({
               >
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-semibold">{o.name}</span>
-                  {o === best && <span className="brand-gradient rounded-full px-2 py-0.5 text-xs font-semibold text-white">{d.best}</span>}
+                  {o === best && <span className="rounded-full bg-accent px-2 py-0.5 text-xs font-semibold text-on-accent">{d.best}</span>}
                   {o.experimental && <span className="rounded-full bg-warn-soft px-2 py-0.5 text-xs text-warn">{d.experimental}</span>}
                   {!o.eligible && <span className="text-xs text-muted">{d.notEligible}: {o.ineligibleReason}</span>}
                 </div>
-                <div className="tabular mt-1 grid grid-cols-3 gap-2 text-xs text-muted">
-                  <span>{d.totalCost}<br /><b className="text-sm text-text">{formatMoney(source as CurrencyCode, o.totalCost, lang)}</b></span>
-                  <span>{d.fees}<br /><b className="text-sm text-text">{formatMoney(source as CurrencyCode, o.feeTotal, lang)}</b> <span>({o.effectiveCostPct}%)</span></span>
-                  <span>{d.eta}<br /><b className="text-sm text-text">{eta(o.etaHours, d)}</b></span>
+                <div className="tabular mt-1.5 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5">
+                  <span className="text-base font-semibold">{formatMoney(source as CurrencyCode, o.totalCost, lang)}</span>
+                  <span className="text-xs text-muted">
+                    {d.fees} {formatMoney(source as CurrencyCode, o.feeTotal, lang)} ({o.effectiveCostPct}%), {d.eta.toLowerCase()} {eta(o.etaHours, d)}
+                  </span>
                 </div>
               </div>
             ))}
@@ -151,7 +163,7 @@ export function CardView({
       const labels = CATEGORY_LABELS[lang];
       return (
         <div className="rounded-2xl border border-border bg-surface p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted">{d.budgetTitle}</p>
+          <p className="text-sm font-semibold text-muted">{d.budgetTitle}</p>
           <div className="mt-2 space-y-2">
             {b.categories.map((c) => {
               const pct = c.pct ?? 0;
@@ -182,8 +194,8 @@ export function CardView({
       if (lang !== "en") return null;
       return (
         <div className="rounded-2xl border border-border bg-surface p-4 text-sm">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted">{d.guideTitle} · {card.data.country}</p>
-          <ul className="mt-2 space-y-1.5">{card.data.items.map((it, i) => <li key={i}>✓ {it}</li>)}</ul>
+          <p className="text-sm font-semibold text-muted">{d.guideTitle} · {card.data.country}</p>
+          <ul className="mt-2 space-y-1.5">{card.data.items.map((it, i) => <li key={i} className="flex gap-2"><Ic icon={Check} className="mt-0.5 text-ok" /><span>{it}</span></li>)}</ul>
         </div>
       );
   }

@@ -1,7 +1,7 @@
 import { type CurrencyCode, getCountry, guideFor, roundTo, CURRENCIES } from "./countries";
 import { fromUsd, toUsd } from "./fx";
 import { getRoute, type Purpose } from "./routes";
-import type { StudentType } from "./paperwork";
+import type { StudentType } from "./guide";
 
 // The sandbox bank. All balances and transactions are simulated; nothing here
 // touches a real financial institution.
@@ -15,7 +15,7 @@ export interface Profile {
   language: Lang;
   university: string;
   studentId: string;
-  /** Older sessions may lack these; read via paperworkProfile(). */
+  /** Older sessions may lack these; read via guideProfile(). */
   studentType?: StudentType;
   stayMonths?: number;
 }
@@ -163,8 +163,8 @@ export interface LedgerState {
   pending: PendingAction[];
   audit: AuditEntry[];
   settings: Settings;
-  /** Paperwork step id → done. Progress is tracked only; the app never files documents. */
-  paperwork?: Record<string, boolean>;
+  /** Guide checklist step id → done. Progress is tracked only; the app never files documents. */
+  checklist?: Record<string, boolean>;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -283,11 +283,11 @@ export function createInitialState(profile: Profile, now = new Date()): LedgerSt
       decision: "read", detail: `Sandbox session for ${home.name} → ${dest.name}`,
     }],
     settings: { ...DEFAULT_SETTINGS },
-    paperwork: {},
+    checklist: {},
   };
 }
 
-export function paperworkProfile(state: LedgerState) {
+export function guideProfile(state: LedgerState) {
   return {
     destCountry: state.profile.destCountry,
     studentType: state.profile.studentType ?? "degree",

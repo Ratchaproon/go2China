@@ -76,9 +76,9 @@ describe("propose → approve flow", () => {
   });
 });
 
-describe("paperwork", () => {
+describe("study-abroad guide", () => {
   it("picks X2 for a one-semester exchange and X1 + residence permit for a year", async () => {
-    const { stepsFor } = await import("@/lib/paperwork");
+    const { stepsFor } = await import("@/lib/guide");
     const sem = stepsFor({ destCountry: "CN", studentType: "exchange", stayMonths: 5 }).map((s) => s.id);
     expect(sem).toContain("cn_visa_x2");
     expect(sem).not.toContain("cn_residence_permit");
@@ -90,7 +90,7 @@ describe("paperwork", () => {
   });
 
   it("only links to https official pages", async () => {
-    const { stepsFor } = await import("@/lib/paperwork");
+    const { stepsFor } = await import("@/lib/guide");
     const { COUNTRIES } = await import("@/lib/countries");
     for (const c of COUNTRIES) {
       for (const s of stepsFor({ destCountry: c.code, studentType: "exchange", stayMonths: 11 })) {
@@ -101,9 +101,51 @@ describe("paperwork", () => {
 
   it("agent can mark known steps only, and progress shows in the checklist", () => {
     const s = freshState();
-    expect(runTool("mark_paperwork_step", { step_id: "not_a_step", done: true }, ctx(s)).isError).toBe(true);
-    runTool("mark_paperwork_step", { step_id: "cn_arrival_card", done: true }, ctx(s));
-    const out = JSON.parse(runTool("get_paperwork_checklist", { stage: "on_arrival" }, ctx(s)).content);
+    expect(runTool("mark_guide_step", { step_id: "not_a_step", done: true }, ctx(s)).isError).toBe(true);
+    runTool("mark_guide_step", { step_id: "cn_arrival_card", done: true }, ctx(s));
+    const out = JSON.parse(runTool("get_study_abroad_guide", { stage: "on_arrival" }, ctx(s)).content);
     expect(out.steps.find((x: { id: string }) => x.id === "cn_arrival_card").done).toBe(true);
+  });
+});
+
+describe("places near campus", () => {
+  it("is deterministic, filters by budget and sorts by value", async () => {
+    const { searchPlaces, generatePlaces } = await import("@/lib/places");
+    expect(generatePlaces("CN")).toEqual(generatePlaces("CN"));
+    const cheap = searchPlaces("CN", { category: "food", maxPrice: 20 });
+    expect(cheap.length).toBeGreaterThan(0);
+    expect(cheap.every((p) => p.price <= 20 && p.category === "food")).toBe(true);
+    const byPrice = searchPlaces("CN", { category: "food", sort: "price" });
+    for (let i = 1; i < byPrice.length; i++) expect(byPrice[i].price).toBeGreaterThanOrEqual(byPrice[i - 1].price);
+  });
+
+  it("tool flags budget fit and marks results as demo data", () => {
+    const out = JSON.parse(runTool("find_places_near_campus", { category: "food" }, ctx(freshState())).content);
+    expect(out.demo_data).toBe(true);
+    expect(out.places[0].google_maps).toMatch(/^https:\/\/www\.google\.com\/maps\//);
+    expect(typeof out.places[0].fits_meal_budget).toBe("boolean");
+  });
+});
+
+describe("guide topics", () => {
+  it("covers every topic for China and for a destination without a detailed guide", async () => {
+    const { stepsFor, TOPICS } = await import("@/lib/guide");
+    for (const dest of ["CN", "VN"]) {
+      const topics = new Set(stepsFor({ destCountry: dest, studentType: "exchange", stayMonths: 11 }).map((s) => s.topic));
+      for (const t of TOPICS) expect(topics, `${dest} missing ${t}`).toContain(t);
+    }
+  });
+
+  it("step ids are unique per profile", async () => {
+    const { stepsFor } = await import("@/lib/guide");
+    const ids = stepsFor({ destCountry: "CN", studentType: "exchange", stayMonths: 11 }).map((s) => s.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("filters by topic", () => {
+    const out = JSON.parse(runTool("get_study_abroad_guide", { topic: "phone" }, ctx(freshState())).content);
+    expect(out.steps.length).toBeGreaterThan(0);
+    expect(out.steps.every((s: { topic: string }) => s.topic === "phone")).toBe(true);
+    expect(out.steps.some((s: { id: string }) => s.id === "ess_sim")).toBe(true);
   });
 });

@@ -1,5 +1,7 @@
 "use client";
 import { useState } from "react";
+import { Check } from "lucide-react";
+import { Ic } from "./icons";
 import { formatMoney, getCountry } from "@/lib/countries";
 import { CATEGORY_LABELS, LANGS, type Dict } from "@/lib/i18n";
 import type { AgentMode, AuditDecision, Lang, LedgerState, Settings } from "@/lib/ledger";
@@ -140,6 +142,7 @@ export function SettingsPanel({
 }) {
   const [s, setS] = useState<Settings>(state.settings);
   const [saved, setSaved] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
   const modes: { id: AgentMode; label: string; desc: string }[] = [
     { id: "advisor", label: d.advisor, desc: d.advisorDesc },
     { id: "copilot", label: d.copilot, desc: d.copilotDesc },
@@ -186,9 +189,9 @@ export function SettingsPanel({
           setSaved(true);
           setTimeout(() => setSaved(false), 2000);
         }}
-        className="brand-gradient rounded-xl px-5 py-2.5 font-semibold text-white disabled:opacity-50"
+        className="rounded-lg bg-ink px-5 py-2.5 font-semibold text-on-ink disabled:opacity-50"
       >
-        {saved ? `✓ ${d.saved}` : d.save}
+        {saved ? <><Ic icon={Check} className="mr-1" />{d.saved}</> : d.save}
       </button>
 
       <section>
@@ -208,9 +211,19 @@ export function SettingsPanel({
 
       <section className="rounded-2xl border border-border bg-surface p-4">
         <p className="text-sm text-muted">{home.flag} {home.name} → {dest.flag} {dest.name} · {state.profile.university} · {state.profile.studentId}</p>
-        <button onClick={onReset} className="mt-3 rounded-xl border border-border px-4 py-2 text-sm font-semibold">
-          {d.changeRoute} / {d.resetSession}
-        </button>
+        {confirmReset ? (
+          <div className="mt-3 rounded-xl bg-warn-soft p-3 text-sm">
+            <p className="text-warn">{d.resetConfirm}</p>
+            <div className="mt-2 flex gap-2">
+              <button onClick={onReset} className="rounded-lg bg-bad px-4 py-2 font-semibold text-on-ink">{d.resetSession}</button>
+              <button onClick={() => setConfirmReset(false)} className="rounded-xl border border-border px-4 py-2 font-semibold">{d.cancel}</button>
+            </div>
+          </div>
+        ) : (
+          <button onClick={() => setConfirmReset(true)} className="mt-3 rounded-xl border border-border px-4 py-2 text-sm font-semibold">
+            {d.changeRoute} / {d.resetSession}
+          </button>
+        )}
       </section>
       <p className="text-xs text-muted">{d.sandboxNote}</p>
     </div>

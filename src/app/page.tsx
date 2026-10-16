@@ -1,11 +1,14 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Compass, FileText, Flag, type LucideIcon, MapPin, MessageCircle, Paperclip, Plane, ReceiptText, Settings as SettingsIcon, Wallet, Wrench, X } from "lucide-react";
+import { Ic } from "@/components/icons";
 import { CardView } from "@/components/Cards";
 import { Markdown } from "@/components/Markdown";
 import { Onboarding, type OnboardingValues } from "@/components/Onboarding";
 import { AccountsStrip, ActivityPanel, SettingsPanel, WalletPanel } from "@/components/Panels";
-import { PaperworkPanel } from "@/components/Paperwork";
-import type { PaperStep } from "@/lib/paperwork";
+import { GuidePanel } from "@/components/Guide";
+import { PlacesPanel } from "@/components/Places";
+import type { GuideStep } from "@/lib/guide";
 import type { Attachment, ToolTraceEntry } from "@/lib/agent";
 import { api, fileToBase64, readToken, store } from "@/lib/client";
 import { getCountry } from "@/lib/countries";
@@ -14,7 +17,7 @@ import { renderInvoice } from "@/lib/invoice";
 import type { Lang, LedgerState, Settings } from "@/lib/ledger";
 import type { UiCard } from "@/lib/tools";
 
-type Tab = "chat" | "wallet" | "paperwork" | "activity" | "settings";
+type Tab = "chat" | "wallet" | "guide" | "places" | "activity" | "settings";
 
 interface Msg {
   id: string;
@@ -59,6 +62,7 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [onboardingLang, setOnboardingLang] = useState<Lang>("en");
+  const [prevProfile, setPrevProfile] = useState<Partial<OnboardingValues>>({});
   const fileRef = useRef<HTMLInputElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -176,11 +180,11 @@ export default function Home() {
     }
   }
 
-  async function togglePaperwork(stepId: string, done: boolean) {
+  async function toggleStep(stepId: string, done: boolean) {
     if (!token) return;
     setBusy(true);
     try {
-      const r = await api<{ token: string }>("/api/paperwork", { token, stepId, done });
+      const r = await api<{ token: string }>("/api/guide", { token, stepId, done });
       setToken(r.token);
     } catch (e) {
       handleAuthFailure(e as Error);
@@ -190,7 +194,7 @@ export default function Home() {
     }
   }
 
-  function explainStep(s: PaperStep) {
+  function explainStep(s: GuideStep) {
     setTab("chat");
     send(`${d.explainPrompt} "${s.title}" (step id: ${s.id})`, null);
   }
@@ -212,46 +216,61 @@ export default function Home() {
   }
 
   function reset() {
-    if (!confirm(d.resetConfirm)) return;
     store.remove(STORAGE_KEY);
     setOnboardingLang(lang);
+    if (state) {
+      const p = state.profile;
+      setPrevProfile({
+        name: p.name, homeCountry: p.homeCountry, destCountry: p.destCountry,
+        studentType: p.studentType ?? "degree", stayMonths: p.stayMonths ?? 11,
+        // Default university names are generated per destination, so only keep a name the student typed.
+        university: p.university.startsWith("Demo University of") ? "" : p.university,
+      });
+    }
+    setTab("chat");
+    setError("");
     setToken(null);
     setMessages([]);
   }
 
   if (!loaded) return null;
   if (!token || !state) {
-    return <Onboarding initial={{ language: onboardingLang }} busy={busy} error={error} onSubmit={start} />;
+    return <Onboarding initial={{ ...prevProfile, language: onboardingLang }} busy={busy} error={error} onSubmit={start} />;
   }
 
   const home = getCountry(state.profile.homeCountry);
   const dest = getCountry(state.profile.destCountry);
-  const tabs: { id: Tab; label: string; icon: string }[] = [
-    { id: "chat", label: d.chat, icon: "💬" },
-    { id: "wallet", label: d.wallet, icon: "👛" },
-    { id: "paperwork", label: d.paperwork, icon: "🛂" },
-    { id: "activity", label: d.activity, icon: "🧾" },
-    { id: "settings", label: d.settings, icon: "⚙️" },
+  const tabs: { id: Tab; label: string; icon: LucideIcon }[] = [
+    { id: "chat", label: d.chat, icon: MessageCircle },
+    { id: "wallet", label: d.wallet, icon: Wallet },
+    { id: "guide", label: d.guide, icon: Compass },
+    { id: "places", label: d.places, icon: MapPin },
+    { id: "activity", label: d.activity, icon: ReceiptText },
+    { id: "settings", label: d.settings, icon: SettingsIcon },
   ];
   const modeLabel = { advisor: d.advisor, copilot: d.copilot, autopilot: d.autopilot }[state.settings.agentMode];
 
   return (
     <div className="flex min-h-dvh flex-col">
-      <header className="sticky top-0 z-10 border-b border-border bg-bg/90 backdrop-blur">
-        <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-3">
+      <header className="sticky top-0 z-10 border-b border-border bg-surface/95 backdrop-blur">
+        <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-2.5">
           <img src="/icon.svg" alt="" className="h-8 w-8" />
           <div className="min-w-0 flex-1">
-            <p className="font-extrabold leading-tight">go2China</p>
-            <p className="truncate text-xs text-muted">{home.flag} {home.name} → {dest.flag} {dest.name}</p>
+            <p className="text-[15px] font-semibold leading-tight tracking-tight">go2China</p>
+            <p className="truncate text-xs text-muted" title={`${home.name} to ${dest.name}`}>
+              {home.flag} <span className="font-semibold text-text">{home.code}</span>
+              <Plane aria-hidden className="mx-1.5 inline h-3.5 w-3.5 align-[-0.15em] text-brand" />
+              {dest.flag} <span className="font-semibold text-text">{dest.code}</span>
+            </p>
           </div>
-          <span className="rounded-full bg-brand-soft px-2.5 py-1 text-xs font-semibold text-brand">{modeLabel}</span>
+          <span className="rounded-full border border-border px-2.5 py-1 text-xs font-medium text-muted">{modeLabel}</span>
         </div>
-        <nav className="mx-auto hidden max-w-3xl gap-1 px-4 pb-2 sm:flex">
+        <nav className="mx-auto hidden max-w-3xl gap-5 px-4 sm:flex">
           {tabs.map((x) => (
             <button
               key={x.id}
               onClick={() => setTab(x.id)}
-              className={`rounded-full px-3 py-1.5 text-sm font-semibold ${tab === x.id ? "bg-text text-bg" : "text-muted"}`}
+              className={`-mb-px border-b-2 pb-2.5 pt-1 text-sm font-medium ${tab === x.id ? "border-brand text-text" : "border-transparent text-muted hover:text-text"}`}
             >
               {x.label}{x.id === "wallet" && state.pending.length > 0 ? ` (${state.pending.length})` : ""}
             </button>
@@ -265,28 +284,35 @@ export default function Home() {
             <AccountsStrip state={state} lang={lang} d={d} />
             <div className="mt-4 space-y-4">
               {messages.length === 0 && (
-                <div className="rounded-3xl border border-border bg-surface p-5">
-                  <p className="text-lg font-bold">👋 {state.profile.name ? `${state.profile.name}, ` : ""}{d.tagline}</p>
-                  <p className="mt-1 text-sm text-muted">{d.sandboxNote}</p>
-                  <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                    {[d.paperworkSuggestion, ...d.suggestions].map((s) => (
-                      <button key={s} onClick={() => send(s)} className="rounded-2xl border border-border bg-surface-2 p-3 text-left text-sm hover:border-brand">
-                        {s}
-                      </button>
-                    ))}
+                <div className="overflow-hidden rounded-2xl border border-border bg-surface">
+                  <div className="px-5 pb-3 pt-5">
+                    <p className="text-xl font-semibold tracking-tight">{d.hello}{state.profile.name ? `, ${state.profile.name}` : ""}</p>
+                    <p className="mt-1 text-muted">{d.tagline}</p>
                   </div>
-                  <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-muted">{d.tryDemo}</p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <button onClick={() => demoInvoice(false)} className="rounded-full border border-brand px-3 py-1.5 text-sm font-semibold text-brand">📄 {d.sampleInvoice}</button>
-                    <button onClick={() => demoInvoice(true)} className="rounded-full border border-bad px-3 py-1.5 text-sm font-semibold text-bad">🚩 {d.suspiciousInvoice}</button>
+                  <ul className="divide-y divide-border border-y border-border">
+                    {[d.guideSuggestion, d.placesSuggestion, ...d.suggestions].map((s) => (
+                      <li key={s}>
+                        <button onClick={() => send(s)} className="w-full px-5 py-3 text-left text-[15px] hover:bg-bg">
+                          {s}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="px-5 py-4">
+                    <p className="text-sm font-semibold text-muted">{d.tryDemo}</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button onClick={() => demoInvoice(false)} className="rounded-full border border-border px-3 py-1.5 text-sm font-medium hover:border-brand"><Ic icon={FileText} className="mr-1" />{d.sampleInvoice}</button>
+                      <button onClick={() => demoInvoice(true)} className="rounded-full border border-bad/40 px-3 py-1.5 text-sm font-medium text-bad hover:border-bad"><Ic icon={Flag} className="mr-1" />{d.suspiciousInvoice}</button>
+                    </div>
+                    <p className="mt-3 text-xs text-muted">{d.sandboxNote}</p>
                   </div>
                 </div>
               )}
               {messages.map((m) => (
                 <div key={m.id}>
                   {m.role === "user" && (
-                    <div className="ml-auto w-fit max-w-[85%] rounded-3xl rounded-br-md bg-brand px-4 py-2.5 text-white">
-                      {m.attachmentName && <p className="mb-1 text-xs opacity-80">📎 {m.attachmentName}</p>}
+                    <div className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-sm bg-ink px-4 py-2.5 text-on-ink">
+                      {m.attachmentName && <p className="mb-1 text-xs opacity-80"><Ic icon={Paperclip} className="mr-1" />{m.attachmentName}</p>}
                       <p className="whitespace-pre-wrap">{m.text}</p>
                     </div>
                   )}
@@ -298,16 +324,16 @@ export default function Home() {
                   {m.role === "assistant" && (
                     <div className="max-w-[95%] space-y-3">
                       {m.text && (
-                        <div className="rounded-3xl rounded-bl-md border border-border bg-surface px-4 py-3 leading-relaxed">
+                        <div className="rounded-2xl rounded-bl-sm bg-surface px-4 py-3 leading-relaxed shadow-[0_1px_0_var(--border)]">
                           <Markdown text={m.text} />
                         </div>
                       )}
-                      {m.cards?.map((c, i) => <CardView key={i} card={c} state={state} lang={lang} d={d} busy={busy} onDecide={decideAction} onOpenPaperwork={() => setTab("paperwork")} />)}
+                      {m.cards?.map((c, i) => <CardView key={i} card={c} state={state} lang={lang} d={d} busy={busy} onDecide={decideAction} onOpenGuide={() => setTab("guide")} onOpenPlaces={() => setTab("places")} />)}
                       {m.trace && m.trace.length > 0 && (
                         <details className="text-xs text-muted">
-                          <summary className="cursor-pointer">🔧 {m.trace.length} tool calls</summary>
+                          <summary className="cursor-pointer"><Ic icon={Wrench} className="mr-1" />{m.trace.length} tool calls</summary>
                           <ul className="mt-1 space-y-0.5 font-mono">
-                            {m.trace.map((x, i) => <li key={i}>{x.tier} · {x.name}{x.isError ? " ✗" : ""}</li>)}
+                            {m.trace.map((x, i) => <li key={i}>{x.tier} · {x.name}{x.isError ? " (error)" : ""}</li>)}
                           </ul>
                         </details>
                       )}
@@ -316,7 +342,7 @@ export default function Home() {
                 </div>
               ))}
               {busy && (
-                <div className="flex w-fit items-center gap-2 rounded-3xl border border-border bg-surface px-4 py-3 text-sm text-muted">
+                <div className="flex w-fit items-center gap-2 rounded-2xl border border-border bg-surface px-4 py-3 text-sm text-muted">
                   <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-brand" /> {d.thinking}
                 </div>
               )}
@@ -325,7 +351,8 @@ export default function Home() {
           </>
         )}
         {tab === "wallet" && <WalletPanel state={state} lang={lang} d={d} busy={busy} onDecide={decideAction} />}
-        {tab === "paperwork" && <PaperworkPanel state={state} d={d} busy={busy} onToggle={togglePaperwork} onExplain={explainStep} />}
+        {tab === "guide" && <GuidePanel state={state} d={d} busy={busy} onToggle={toggleStep} onExplain={explainStep} />}
+        {tab === "places" && <PlacesPanel state={state} lang={lang} d={d} />}
         {tab === "activity" && <ActivityPanel state={state} d={d} />}
         {tab === "settings" && (
           <SettingsPanel
@@ -338,7 +365,7 @@ export default function Home() {
         )}
       </main>
 
-      <div className="fixed inset-x-0 bottom-0 z-10 border-t border-border bg-bg/95 backdrop-blur">
+      <div className="fixed inset-x-0 bottom-0 z-10 border-t border-border bg-surface/95 backdrop-blur">
         {tab === "chat" && (
           <form
             className="mx-auto max-w-3xl px-4 pt-3"
@@ -351,8 +378,8 @@ export default function Home() {
               <div className="mb-2 flex items-center gap-2 text-sm">
                 {attachment && (
                   <span className="rounded-full bg-brand-soft px-3 py-1 text-brand">
-                    📎 {attachment.name}
-                    <button type="button" className="ml-2" aria-label="Remove" onClick={() => setAttachment(null)}>✕</button>
+                    <Ic icon={Paperclip} className="mr-1" />{attachment.name}
+                    <button type="button" className="ml-2 align-middle" aria-label="Remove" onClick={() => setAttachment(null)}><X aria-hidden className="h-3.5 w-3.5" /></button>
                   </span>
                 )}
                 {error && <span className="text-bad">{error}</span>}
@@ -370,8 +397,8 @@ export default function Home() {
                   e.target.value = "";
                 }}
               />
-              <button type="button" onClick={() => fileRef.current?.click()} aria-label={d.attach} title={d.attach} className="rounded-2xl border border-border bg-surface p-3">
-                📎
+              <button type="button" onClick={() => fileRef.current?.click()} aria-label={d.attach} title={d.attach} className="rounded-xl border border-border bg-bg p-3">
+                <Paperclip aria-hidden className="h-5 w-5" />
               </button>
               <textarea
                 value={input}
@@ -385,19 +412,27 @@ export default function Home() {
                     send(input);
                   }
                 }}
-                className="max-h-36 min-h-12 flex-1 resize-none rounded-2xl border border-border bg-surface px-4 py-3 outline-none focus:border-brand"
+                className="max-h-36 min-h-12 min-w-0 flex-1 resize-none rounded-xl border border-border bg-bg px-4 py-3 outline-none placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap focus:border-brand"
               />
-              <button disabled={busy || (!input.trim() && !attachment)} className="brand-gradient rounded-2xl px-4 py-3 font-semibold text-white disabled:opacity-40">
+              <button disabled={busy || (!input.trim() && !attachment)} className="rounded-xl bg-ink px-4 py-3 font-semibold text-on-ink disabled:opacity-40">
                 {d.send}
               </button>
             </div>
           </form>
         )}
-        <nav className="mx-auto flex max-w-3xl justify-around px-2 py-2 sm:hidden">
+        <nav className="mx-auto flex max-w-3xl justify-around px-1 pb-2 sm:hidden">
           {tabs.map((x) => (
-            <button key={x.id} onClick={() => setTab(x.id)} className={`flex min-w-0 flex-1 flex-col items-center px-0.5 text-[11px] leading-tight ${tab === x.id ? "font-bold text-brand" : "text-muted"}`}>
-              <span className="text-lg">{x.icon}</span>
-              {x.label}{x.id === "wallet" && state.pending.length > 0 ? ` (${state.pending.length})` : ""}
+            <button
+              key={x.id}
+              onClick={() => setTab(x.id)}
+              aria-current={tab === x.id ? "page" : undefined}
+              className={`relative flex min-w-0 flex-1 flex-col items-center border-t-2 px-0.5 pt-1.5 text-[11px] leading-tight ${tab === x.id ? "border-brand font-semibold text-text" : "border-transparent text-muted"}`}
+            >
+              <x.icon aria-hidden className="mb-0.5 h-5 w-5" strokeWidth={tab === x.id ? 2.25 : 1.75} />
+              {x.label}
+              {x.id === "wallet" && state.pending.length > 0 && (
+                <span className="absolute right-[22%] top-1 h-2 w-2 rounded-full bg-accent" aria-label={`${state.pending.length} ${d.pendingCount}`} />
+              )}
             </button>
           ))}
         </nav>

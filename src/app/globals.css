@@ -1,39 +1,51 @@
 @import "tailwindcss";
 
+/*
+ * go2China visual language: travel documents.
+ * Passport-ink navy for text and primary actions, a cool visa-page paper
+ * background, and one marigold "boarding pass" accent reserved for the
+ * moment a student approves money moving. Status colours are only for status.
+ */
 :root {
-  --bg: #f6f6fb;
+  --bg: #eef1f6;
   --surface: #ffffff;
-  --surface-2: #f0f0f7;
-  --border: #e3e3ee;
-  --text: #16162a;
-  --muted: #6b6b85;
-  --brand: #5b4bdb;
-  --brand-2: #c0399a;
-  --brand-soft: #ecebfd;
-  --ok: #138a52;
-  --ok-soft: #e4f6ec;
-  --warn: #a86400;
-  --warn-soft: #fff3df;
-  --bad: #c3283a;
-  --bad-soft: #fde8eb;
+  --surface-2: #e4e9f1;
+  --border: #d3dae6;
+  --text: #141c3a;
+  --muted: #5a6482;
+  --brand: #1f3a8a;
+  --brand-soft: #e3e9fa;
+  --ink: #172554;
+  --on-ink: #f8faff;
+  --accent: #e8a317;
+  --on-accent: #1a1405;
+  --ok: #0e7a5f;
+  --ok-soft: #ddf3ea;
+  --warn: #a35b00;
+  --warn-soft: #fcefd9;
+  --bad: #b4232f;
+  --bad-soft: #fbe3e5;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0e0e18;
-    --surface: #17172a;
-    --surface-2: #1f1f36;
-    --border: #2c2c48;
-    --text: #ececf8;
-    --muted: #9a9ab8;
-    --brand: #8b7dff;
-    --brand-2: #ff6ec7;
-    --brand-soft: #25224a;
-    --ok: #4ad295;
-    --ok-soft: #12301f;
-    --warn: #ffb547;
+    --bg: #0b1026;
+    --surface: #141b3a;
+    --surface-2: #1c2550;
+    --border: #2a3566;
+    --text: #e9edfa;
+    --muted: #9aa5c8;
+    --brand: #9db4ff;
+    --brand-soft: #1f2a5c;
+    --ink: #dce4ff;
+    --on-ink: #0b1026;
+    --accent: #f2b53a;
+    --on-accent: #1a1405;
+    --ok: #4ccb9c;
+    --ok-soft: #10302a;
+    --warn: #f4b860;
     --warn-soft: #33260e;
-    --bad: #ff6b7d;
+    --bad: #ff7a86;
     --bad-soft: #3a1820;
   }
 }
@@ -46,14 +58,18 @@
   --color-text: var(--text);
   --color-muted: var(--muted);
   --color-brand: var(--brand);
-  --color-brand-2: var(--brand-2);
   --color-brand-soft: var(--brand-soft);
+  --color-ink: var(--ink);
+  --color-on-ink: var(--on-ink);
+  --color-accent: var(--accent);
+  --color-on-accent: var(--on-accent);
   --color-ok: var(--ok);
   --color-ok-soft: var(--ok-soft);
   --color-warn: var(--warn);
   --color-warn-soft: var(--warn-soft);
   --color-bad: var(--bad);
   --color-bad-soft: var(--bad-soft);
+  --font-mono: var(--font-plex-mono), ui-monospace, "SF Mono", Menlo, monospace;
 }
 
 html, body {
@@ -62,12 +78,44 @@ html, body {
 }
 
 body {
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Noto Sans", "Noto Sans Thai", "PingFang SC", "Hiragino Sans", "Malgun Gothic", sans-serif;
+  font-family: var(--font-plex), var(--font-plex-thai), ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Hiragino Sans", "Malgun Gothic", "Noto Sans", sans-serif;
   -webkit-font-smoothing: antialiased;
+  line-height: 1.5;
 }
 
-.brand-gradient {
-  background: linear-gradient(120deg, var(--brand), var(--brand-2));
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
 
 .tabular { font-variant-numeric: tabular-nums; }
+
+/* Machine-readable zone, as printed at the foot of a passport data page. */
+.mrz {
+  font-family: var(--font-plex-mono), ui-monospace, monospace;
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* Boarding-pass perforation between a ticket's details and its stub. */
+.perforation {
+  position: relative;
+  border-top: 2px dashed var(--border);
+}
+.perforation::before,
+.perforation::after {
+  content: "";
+  position: absolute;
+  top: -9px;
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background: var(--bg);
+}
+.perforation::before { left: -25px; }
+.perforation::after { right: -25px; }

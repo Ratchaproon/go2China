@@ -1,4 +1,5 @@
 import { Fragment, type ReactNode } from "react";
+import { ArrowUpRight } from "lucide-react";
 
 // Minimal, safe markdown subset for agent replies: paragraphs, bullet and
 // numbered lists, headings, **bold**, `code`. No raw HTML is ever rendered.
@@ -19,7 +20,7 @@ export function ExtLink({ href, children }: { href: string; children: ReactNode 
   return (
     <a href={u.href} target="_blank" rel="noopener noreferrer nofollow" className="font-medium text-brand underline underline-offset-2">
       {children}
-      <span className="ml-1 inline-block text-xs text-muted">↗ {u.hostname.replace(/^www\./, "")}</span>
+      <span className="ml-1 inline-flex items-center gap-0.5 text-xs text-muted"><ArrowUpRight aria-hidden className="h-3 w-3" />{u.hostname.replace(/^www\./, "")}</span>
     </a>
   );
 }
@@ -32,7 +33,7 @@ function inline(text: string): ReactNode[] {
   while ((m = re.exec(text))) {
     if (m.index > last) out.push(text.slice(last, m.index));
     const tok = m[0];
-    if (tok.startsWith("**")) out.push(<b key={m.index}>{tok.slice(2, -2)}</b>);
+    if (tok.startsWith("**")) out.push(<b key={m.index}>{inline(tok.slice(2, -2))}</b>); // bold may wrap a link
     else if (tok.startsWith("`")) out.push(<code key={m.index} className="rounded bg-surface-2 px-1">{tok.slice(1, -1)}</code>);
     else if (tok.startsWith("[")) {
       const [, label, href] = /^\[([^\]]+)\]\((.+)\)$/.exec(tok)!;

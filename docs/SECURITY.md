@@ -36,9 +36,9 @@ Each agent tool has a fixed tier, and each tier carries a different level of aut
 | Client tampering with balances, settings or approvals | The ledger state is HMAC-SHA256 signed by the server. Any change breaks the signature and is rejected | `token.ts` |
 | Data exposure to the model | The agent sees account numbers masked to the last four digits | `list_payees` |
 | Abuse and cost | Per-IP rate limits and request size limits (messages up to 4,000 characters, files up to about 3 MB) | `http.ts`, API routes |
-| Wrong or fake visa links | Checklist links are a curated list of official government sites, checked on 2026-10-14. The agent is told never to invent URLs, and to link only to university or government domains it finds through web search. The UI shows each link's real domain next to it | `paperwork.ts`, `Markdown.tsx` |
+| Wrong or fake visa links | Checklist links are a curated list of official government sites, checked on 2026-10-14. The agent is told never to invent URLs, and to link only to university or government domains it finds through web search. The UI shows each link's real domain next to it | `guide.ts`, `Markdown.tsx` |
 | Personal data in web searches | The agent is told never to put the student's name, ID or other personal data in search queries | `agent.ts` |
-| Handling identity documents | The app never fills in, stores or submits immigration documents. It tracks only which steps are done (true/false) | `paperwork.ts` |
+| Handling identity documents | The app never fills in, stores or submits immigration documents. It tracks only which steps are done (true/false) | `guide.ts` |
 | Misleading advice | The system prompt states that the agent gives general information, not regulated advice, and points users to official sources for visas, tax and scholarships | `agent.ts` |
 | Model refusal | Server-side refusal fallback (`fallbacks: "default"`) | `agent.ts` |
 | Browser hardening | `X-Frame-Options: DENY`, `nosniff`, a strict referrer policy and a restrictive permissions policy | `next.config.ts` |
@@ -63,3 +63,4 @@ Every tool call, proposal, approval, rejection, block, expiry, security flag and
 | 10 | The demo signing secret is used when `LEDGER_SIGNING_SECRET` is unset in development | Tokens are forgeable in dev | Production refuses to start without the secret |
 | 11 | Visa rules change, and the curated steps can go out of date | Students could act on outdated steps | Show a "last checked" date, review links every term, and keep telling students that the official page has the final say |
 | 12 | Web search results can include unofficial look-alike sites | A student could follow a phishing page | The prompt limits links to official domains and the UI shows the domain; a future step is a domain allowlist for each university |
+| 13 | Places, ratings and reviews are generated demo data | Could be mistaken for real reviews | Labelled "Demo data" in the UI and in every agent reply; replace with a licensed places API before real use. Google Maps is also blocked in mainland China, so add Amap/Dianping links for China later |

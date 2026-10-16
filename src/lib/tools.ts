@@ -5,10 +5,11 @@ import { quote, toUsd } from "./fx";
 import { compareRoutes, getRoute, priceRoute, ROUTES } from "./routes";
 import {
   type ActionParams, type Category, type LedgerState, type PendingAction, type Tier,
-  SPEND_CATEGORIES, audit, executeAddPayee, executeConvert, executeTransfer, maskAccount, paperworkProfile, uid,
+  SPEND_CATEGORIES, audit, executeAddPayee, executeConvert, executeTransfer, maskAccount, guideProfile, uid,
 } from "./ledger";
 import { evaluate } from "./policy";
-import { ALL_STEP_IDS, STAGES, type PaperStep, hasCountryGuide, stepsFor } from "./paperwork";
+import { campusFor, mapsLinks, mealBudget, PLACE_CATEGORIES, type PlaceCategory, searchPlaces } from "./places";
+import { ALL_STEP_IDS, STAGES, TOPICS, type GuideStep, hasCountryGuide, stepsFor } from "./guide";
 
 // Agent tools. Every tool declares a permission tier; money-moving tools only
 // *propose* actions. Execution happens in executeApproved(), which is reachable
@@ -56,10 +57,17 @@ const schemas = {
     reason: z.string().max(300),
   }).strict(),
   list_pending_actions: z.object({}).strict(),
-  get_paperwork_checklist: z.object({
+  get_study_abroad_guide: z.object({
     stage: z.enum(["before_departure", "on_arrival", "during_stay", "before_leaving", "all"]).optional(),
+    topic: z.enum(["all", ...TOPICS]).optional(),
   }).strict(),
-  mark_paperwork_step: z.object({ step_id: z.string().max(60), done: z.boolean() }).strict(),
+  mark_guide_step: z.object({ step_id: z.string().max(60), done: z.boolean() }).strict(),
+  find_places_near_campus: z.object({
+    category: z.enum(PLACE_CATEGORIES as [PlaceCategory, ...PlaceCategory[]]),
+    max_price: z.number().positive().optional(),
+    min_rating: z.number().min(0).max(5).optional(),
+    sort: z.enum(["value", "rating", "price", "distance"]).optional(),
+  }).strict(),
   report_security_concern: z.object({
     source: z.enum(["uploaded_document", "user_message", "other"]),
     description: z.string().max(500),
@@ -78,9 +86,10 @@ export const TOOL_TIERS: Record<ToolName, Tier> = {
   list_payees: "L0",
   list_pending_actions: "L0",
   report_security_concern: "L0",
-  get_paperwork_checklist: "L0",
+  get_study_abroad_guide: "L0",
+  find_places_near_campus: "L0",
   set_budget: "L1",
-  mark_paperwork_step: "L1",
+  mark_guide_step: "L1",
   propose_currency_conversion: "L2",
   propose_transfer: "L2",
   propose_add_payee: "L3",
@@ -222,17 +231,34 @@ export const TOOL_DEFS: Anthropic.Tool[] = [
     input_schema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
-    name: "get_paperwork_checklist",
-    description: "Get the student's immigration and university paperwork checklist for their destination, student type (degree/exchange) and stay length: visa, residence permit, registration, health checks, university forms. Each step says what it is, who issues it, documents needed, timing, whether the student has marked it done, and links to OFFICIAL government or university pages. The app never fills in or submits these documents — it only guides the student to the official source.",
+    name: "get_study_abroad_guide",
+    description: "Get the student's study-abroad checklist for their destination, student type (degree/exchange) and stay length. Topics: paperwork (visa, residence permit, registration), phone (SIM, internet, campus Wi-Fi), banking (bank account, payments, cards, budget), housing, health (insurance, doctors, medicines), transport, apps to install, safety (emergency numbers, scams, document copies), academics (university forms, courses, transcripts) and daily (plugs, language, social). Filter by stage and/or topic. Each step says what it is, who handles it, documents needed, timing, whether the student marked it done, and OFFICIAL links where available. The app never fills in or submits documents.",
     input_schema: {
       type: "object",
-      properties: { stage: { type: "string", enum: ["before_departure", "on_arrival", "during_stay", "before_leaving", "all"] } },
+      properties: {
+        stage: { type: "string", enum: ["before_departure", "on_arrival", "during_stay", "before_leaving", "all"] },
+        topic: { type: "string", enum: [...TOPICS, "all"] },
+      },
       additionalProperties: false,
     },
   },
   {
-    name: "mark_paperwork_step",
-    description: "Mark a paperwork checklist step as done or not done, when the student tells you they finished it. Tier L1: progress tracking only.",
+    name: "find_places_near_campus",
+    description: "Find food, cafés, groceries, hotels or hostels near the student's campus, with ratings, sample reviews, typical price (per meal or per night, destination currency, plus home-currency equivalent), distance, student discounts, and whether each fits the student's per-meal budget (derived from their monthly food budget). Includes Google Maps links. NOTE: places, ratings and reviews are DEMO DATA in this sandbox — always say so.",
+    input_schema: {
+      type: "object",
+      properties: {
+        category: { type: "string", enum: PLACE_CATEGORIES },
+        max_price: { type: "number", description: "Max price per meal/night in destination currency" },
+        min_rating: { type: "number", minimum: 0, maximum: 5 },
+        sort: { type: "string", enum: ["value", "rating", "price", "distance"], description: "value = best rating for the price (default)" },
+      },
+      required: ["category"], additionalProperties: false,
+    },
+  },
+  {
+    name: "mark_guide_step",
+    description: "Mark a study-abroad checklist step as done or not done, when the student tells you they finished it. Tier L1: progress tracking only.",
     input_schema: {
       type: "object",
       properties: { step_id: { type: "string" }, done: { type: "boolean" } },
@@ -262,7 +288,8 @@ export type UiCard =
   | { type: "blocked"; data: { summary: string; reasons: string[] } }
   | { type: "executed"; data: { summary: string } }
   | { type: "security"; data: { description: string } }
-  | { type: "paperwork"; data: { stage: string } };
+  | { type: "checklist"; data: { stage: string; topic: string } }
+  | { type: "places"; data: { category: PlaceCategory; ids: string[]; mealBudget: number } };
 
 export interface ToolContext {
   state: LedgerState;
@@ -518,13 +545,13 @@ const handlers: Handlers = {
     }, i.reason);
   },
 
-  get_paperwork_checklist({ stage = "all" }, ctx) {
-    const prof = paperworkProfile(ctx.state);
-    const done = ctx.state.paperwork ?? {};
-    const steps = stepsFor(prof).filter((s) => stage === "all" || s.stage === stage);
-    ctx.cards.push({ type: "paperwork", data: { stage } });
-    const view = (s: PaperStep) => ({
-      id: s.id, stage: s.stage, kind: s.kind, title: s.title, what: s.what, issuer: s.issuer,
+  get_study_abroad_guide({ stage = "all", topic = "all" }, ctx) {
+    const prof = guideProfile(ctx.state);
+    const done = ctx.state.checklist ?? {};
+    const steps = stepsFor(prof).filter((s) => (stage === "all" || s.stage === stage) && (topic === "all" || s.topic === topic));
+    ctx.cards.push({ type: "checklist", data: { stage, topic } });
+    const view = (s: GuideStep) => ({
+      id: s.id, stage: s.stage, topic: s.topic, title: s.title, what: s.what, issuer: s.issuer,
       documents: s.documents, when: s.when, done: !!done[s.id],
       official_links: s.links.map((l) => ({ label: l.label, url: l.url, ...(l.unverified ? { note: "official site; blocks automated checks" } : {}) })),
     });
@@ -535,16 +562,44 @@ const handlers: Handlers = {
       stay_months: prof.stayMonths,
       has_country_specific_guide: hasCountryGuide(prof.destCountry),
       stages: STAGES,
+      topics: TOPICS,
       next_step: next?.id ?? null,
       steps: steps.map(view),
       note: "The app does not fill in or submit documents. Rules change: the official page and the university's international office are the source of truth.",
     };
   },
 
-  mark_paperwork_step({ step_id, done }, { state, now }) {
+  find_places_near_campus({ category, max_price, min_rating, sort }, ctx) {
+    const { state, now } = ctx;
+    const dest = state.profile.destCountry;
+    const home = getCountry(state.profile.homeCountry).currency;
+    const dc = getCountry(dest).currency;
+    const foodBudget = state.budgets.find((b) => b.category === "food")?.monthlyLimit;
+    const perMeal = roundTo(dc, mealBudget(foodBudget, dest));
+    const places = searchPlaces(dest, { category, maxPrice: max_price, minRating: min_rating, sort }).slice(0, 6);
+    const toHome = quote(dc, home, 1, now).midRate;
+    ctx.cards.push({ type: "places", data: { category, ids: places.map((p) => p.id), mealBudget: perMeal } });
+    return {
+      demo_data: true,
+      campus: campusFor(dest, state.profile.university).name,
+      per_meal_budget: category === "food" || category === "cafe" ? { amount: perMeal, currency: dc, basis: "monthly food budget ÷ 60 meals (2 meals a day)" } : undefined,
+      places: places.map((p) => ({
+        name: p.name, cuisine: p.cuisine, rating: p.rating, reviews: p.reviewCount,
+        price: p.price, currency: p.currency, price_home_currency: roundTo(home, p.price * toHome), home_currency: home,
+        per: category === "hotel" || category === "hostel" ? "night" : "person",
+        distance_km: p.distanceKm, student_discount: p.studentDiscount,
+        fits_meal_budget: category === "food" || category === "cafe" ? p.price <= perMeal : undefined,
+        sample_reviews: p.reviews.map((r) => `${r.stars}/5: ${r.text}`),
+        google_maps: mapsLinks(p).view,
+      })),
+      note: "Demo places and ratings. The Google Maps links open the demo coordinates.",
+    };
+  },
+
+  mark_guide_step({ step_id, done }, { state, now }) {
     if (!ALL_STEP_IDS.has(step_id)) throw new Error(`Unknown step ${step_id}`);
-    state.paperwork = { ...(state.paperwork ?? {}), [step_id]: done };
-    audit(state, { actor: "agent", action: "mark_paperwork_step", tier: "L1", decision: "auto_executed", detail: `${step_id} → ${done ? "done" : "to do"}` }, now);
+    state.checklist = { ...(state.checklist ?? {}), [step_id]: done };
+    audit(state, { actor: "agent", action: "mark_guide_step", tier: "L1", decision: "auto_executed", detail: `${step_id} → ${done ? "done" : "to do"}` }, now);
     return { status: "ok", step_id, done };
   },
 
