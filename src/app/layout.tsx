@@ -9,7 +9,7 @@ const plexThai = IBM_Plex_Sans_Thai({ subsets: ["thai"], weight: ["400", "500", 
 const plexMono = IBM_Plex_Mono({ subsets: ["latin"], weight: ["500"], variable: "--font-plex-mono", display: "swap" });
 
 export const metadata: Metadata = {
-  title: "go2China — Student Finance Agent",
+  title: "WeXchange — Finance Agent for Exchange Students",
   description: "AI finance agent for international and exchange students: cross-border tuition payments, remittances, multi-currency budgets.",
   manifest: "/manifest.webmanifest",
 };

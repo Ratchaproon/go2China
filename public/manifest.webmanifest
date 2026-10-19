@@ -1,6 +1,6 @@
 {
-  "name": "go2China — Student Finance Agent",
-  "short_name": "go2China",
+  "name": "WeXchange — Finance Agent for Exchange Students",
+  "short_name": "WeXchange",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f2f5fa",

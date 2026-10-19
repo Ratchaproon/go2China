@@ -54,7 +54,7 @@ export function Onboarding({
       <section className="min-w-0">
         <div className="flex items-center gap-2.5">
           <img src="/icon.svg" alt="" className="h-9 w-9" />
-          <span className="text-lg font-semibold tracking-tight">go2China</span>
+          <span className="text-lg font-semibold tracking-tight">WeXchange</span>
         </div>
         <h1 className="mt-6 text-3xl font-semibold leading-tight tracking-tight md:text-[2.6rem]">{d.welcome}</h1>
         <p className="mt-3 max-w-md text-muted">{d.tagline}</p>

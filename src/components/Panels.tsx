@@ -385,7 +385,7 @@ export function ActivityPanel({ state, lang, d }: { state: LedgerState; lang: La
     );
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `go2china-audit-${state.sessionId}.json`;
+    a.download = `wexchange-audit-${state.sessionId}.json`;
     a.click();
     URL.revokeObjectURL(a.href);
   };

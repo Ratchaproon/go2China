@@ -1,8 +1,8 @@
-# go2China — AI finance agent for international students
+# WeXchange — AI finance agent for international students
 
 **FinTechathon 2026 · International Track · Topic C: Cross-border & Student Finance Assistant**
 
-go2China is an AI agent that handles real money tasks for students who move abroad to study or go on exchange. You pick your home country, your destination and your language. The agent then works inside a sandbox bank for you: it reads tuition invoices, compares cross-border payment routes, prepares payments and currency conversions, tracks your budget, and explains how money works in the new country.
+WeXchange is an AI agent that handles real money tasks for students who move abroad to study or go on exchange. You pick your home country, your destination and your language. The agent then works inside a sandbox bank for you: it reads tuition invoices, compares cross-border payment routes, prepares payments and currency conversions, tracks your budget, and explains how money works in the new country.
 
 Every money movement goes through a deterministic policy engine and needs your approval, unless it's a tiny conversion between your own accounts that you explicitly allowed. Everything the agent does is written to an audit log that you can export.
 

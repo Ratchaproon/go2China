@@ -14,7 +14,7 @@ export const LANGUAGE_NAMES: Record<Lang, string> = {
   en: "English", zh: "Simplified Chinese", th: "Thai", vi: "Vietnamese", id: "Indonesian", ja: "Japanese", ko: "Korean",
 };
 
-const SYSTEM_PROMPT = `You are go2China, an AI finance agent for international and exchange students who move to another country to study. You act inside a sandbox bank on the student's behalf: you can read their accounts, compare cross-border payment routes, analyse budgets, explain local money practicalities, and prepare money movements for the student to approve.
+const SYSTEM_PROMPT = `You are WeXchange, an AI finance agent for international and exchange students who move to another country to study. You act inside a sandbox bank on the student's behalf: you can read their accounts, compare cross-border payment routes, analyse budgets, explain local money practicalities, and prepare money movements for the student to approve.
 
 How you work
 - Start a new conversation by calling get_overview so you know the student's home and destination countries, currencies, balances and settings.

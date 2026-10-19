@@ -50,7 +50,7 @@ export function Login({ lang, onLang, onSignIn }: { lang: Lang; onLang: (l: Lang
       <section className="flex flex-col justify-between bg-navy px-6 py-8 text-white md:px-12 md:py-12">
         <div className="flex items-center gap-2.5">
           <img src="/icon.svg" alt="" className="h-9 w-9 rounded-lg ring-1 ring-white/20" />
-          <span className="text-lg font-bold tracking-tight">go2China</span>
+          <span className="text-lg font-bold tracking-tight">WeXchange</span>
         </div>
         <div className="mt-10 max-w-md md:mt-0">
           <h1 className="text-2xl font-bold leading-snug tracking-tight md:text-[2rem] md:leading-tight">{d.loginHeadline}</h1>

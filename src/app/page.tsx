@@ -346,7 +346,7 @@ export default function Home() {
         <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 pb-2 pt-3 sm:pt-4">
           <img src="/icon.svg" alt="" className="h-9 w-9 rounded-lg sm:h-10 sm:w-10" />
           <div className="min-w-0 flex-1">
-            <p className="text-base font-bold leading-tight tracking-tight sm:text-lg">go2China</p>
+            <p className="text-base font-bold leading-tight tracking-tight sm:text-lg">WeXchange</p>
             <p className="truncate text-xs font-medium text-muted">
               <span title={home.name}>{home.flag} {home.name}</span>
               <span aria-hidden className="mx-1">→</span>
