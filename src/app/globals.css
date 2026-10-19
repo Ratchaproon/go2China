@@ -28,10 +28,16 @@
   --warn-soft: #fdf1dc;
   --bad: #c9252d;
   --bad-soft: #fdeaea;
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235b6b86' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
+/*
+ * Theme: light by default on every device, so the app looks the same on a phone
+ * and a laptop. Students can pick Dark or "Match device" in Settings; the choice
+ * is stored per device and set on <html data-theme> before the first paint.
+ */
+:root[data-theme="dark"] {
     --bg: #0b1220;
     --surface: #121b2e;
     --surface-2: #172238;
@@ -52,6 +58,36 @@
     --warn-soft: #33260e;
     --bad: #ff7077;
     --bad-soft: #3a171c;
+    --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2393a3bf' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    color-scheme: dark;
+  
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="system"] {
+    --bg: #0b1220;
+    --surface: #121b2e;
+    --surface-2: #172238;
+    --border: #24324d;
+    --text: #e8eef8;
+    --muted: #93a3bf;
+    --brand: #79a8ff;
+    --brand-soft: #16284a;
+    --ink: #3b78dc;
+    --on-ink: #ffffff;
+    --navy: #2a4f96;
+    --star: #f2b53a;
+    --accent: #ff5a61;
+    --on-accent: #ffffff;
+    --ok: #45c992;
+    --ok-soft: #0f2e24;
+    --warn: #f2b660;
+    --warn-soft: #33260e;
+    --bad: #ff7077;
+    --bad-soft: #3a171c;
+    --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2393a3bf' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    color-scheme: dark;
+  
   }
 }
 
@@ -126,3 +162,26 @@ body {
 }
 .perforation::before { left: -25px; }
 .perforation::after { right: -25px; }
+
+/*
+ * Dropdowns: replace the browser's built-in (glossy, OS-specific) look with a
+ * flat field that matches the rest of the form, plus a theme-aware chevron.
+ * Unlayered on purpose so the right padding wins over Tailwind's px-* utilities.
+ */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: var(--surface);
+  background-image: var(--chevron);
+  background-repeat: no-repeat;
+  background-position: right 0.7rem center;
+  background-size: 1rem;
+  padding-right: 2.25rem;
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+select:hover:not(:disabled) { border-color: var(--brand); }
+select:focus-visible { border-color: var(--brand); outline: 2px solid color-mix(in srgb, var(--brand) 35%, transparent); outline-offset: 1px; }
+select:disabled { cursor: default; opacity: 0.7; }
+select option { background-color: var(--surface); color: var(--text); }

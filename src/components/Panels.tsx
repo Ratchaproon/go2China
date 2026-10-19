@@ -116,7 +116,7 @@ function ExpenseForm({
         ))}
       </div>
       <div className={`grid grid-cols-2 gap-3 ${income ? "sm:grid-cols-[1.2fr_1.6fr_1fr]" : "sm:grid-cols-[1.2fr_0.8fr_1fr_1fr]"}`}>
-        <label className="block text-sm font-medium text-muted">
+        <label className="col-span-2 block text-sm font-medium text-muted sm:col-span-1">
           {d.expenseAmount}
           <div className="mt-1 flex">
             <select aria-label="Currency" value={b.currency} onChange={(e) => setB({ ...b, currency: e.target.value })} className="rounded-l-lg border border-r-0 border-border bg-surface px-2 text-base text-text">
@@ -458,6 +458,43 @@ export function ActivityPanel({ state, lang, d }: { state: LedgerState; lang: La
   );
 }
 
+type Theme = "light" | "dark" | "system";
+const THEME_KEY = "go2china:theme";
+
+/** Light by default on every device; saved per device and applied to <html data-theme>. */
+function ThemePicker({ d }: { d: Dict }) {
+  const [theme, setTheme] = useState<Theme>(() => (typeof document !== "undefined" ? (document.documentElement.dataset.theme as Theme) : "light") || "light");
+  const pick = (t: Theme) => {
+    setTheme(t);
+    document.documentElement.dataset.theme = t;
+    // Plain string (not JSON) so the early script in layout.tsx can read it before React loads.
+    try {
+      if (t === "light") localStorage.removeItem(THEME_KEY);
+      else localStorage.setItem(THEME_KEY, t);
+    } catch {
+      /* storage unavailable: the choice lasts for this visit */
+    }
+  };
+  const options: [Theme, string][] = [["light", d.themeLight], ["dark", d.themeDark], ["system", d.themeSystem]];
+  return (
+    <section className="rounded-2xl border border-border bg-surface p-5">
+      <h2 className="text-lg font-bold">{d.theme}</h2>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {options.map(([t, label]) => (
+          <button
+            key={t}
+            onClick={() => pick(t)}
+            aria-pressed={theme === t}
+            className={`rounded-full border px-3 py-1.5 text-sm ${theme === t ? "border-brand bg-brand-soft font-semibold text-brand" : "border-border"}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export type SaveResult = { ok: true } | { ok: false; code?: string; message?: string };
 
 const LIMIT_LABEL = (d: Dict): Record<LimitKey, string> => ({ perTxnLimitUsd: d.perTxn, dailyLimitUsd: d.daily, autoApproveLimitUsd: d.autoLimit });
@@ -589,6 +626,8 @@ export function SettingsPanel({
         )}
         {err && <p className="mt-2 text-sm text-bad" role="alert">{err}</p>}
       </section>
+
+      <ThemePicker d={d} />
 
       <section className="rounded-2xl border border-border bg-surface p-5">
         <h2 className="text-lg font-bold">{d.language}</h2>
