@@ -3,7 +3,7 @@
   "short_name": "go2China",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#eef1f6",
-  "theme_color": "#172554",
+  "background_color": "#f2f5fa",
+  "theme_color": "#1f5bb5",
   "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
 }

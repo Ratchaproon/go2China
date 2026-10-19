@@ -7,7 +7,7 @@ import {
   type ActionParams, type Category, type LedgerState, type PendingAction, type Tier,
   SPEND_CATEGORIES, audit, executeAddPayee, executeConvert, executeTransfer, maskAccount, guideProfile, uid,
 } from "./ledger";
-import { evaluate } from "./policy";
+import { checkPayeeDetails, evaluate } from "./policy";
 import { campusFor, mapsLinks, mealBudget, PLACE_CATEGORIES, type PlaceCategory, searchPlaces } from "./places";
 import { ALL_STEP_IDS, STAGES, TOPICS, type GuideStep, hasCountryGuide, stepsFor } from "./guide";
 
@@ -57,6 +57,11 @@ const schemas = {
     reason: z.string().max(300),
   }).strict(),
   list_pending_actions: z.object({}).strict(),
+  request_limit_change: z.object({ what: z.string().max(200) }).strict(),
+  verify_payee_details: z.object({
+    name: z.string().min(2).max(120), account_number: z.string().min(4).max(40),
+    source: z.enum(["uploaded_document", "user_message"]),
+  }).strict(),
   get_study_abroad_guide: z.object({
     stage: z.enum(["before_departure", "on_arrival", "during_stay", "before_leaving", "all"]).optional(),
     topic: z.enum(["all", ...TOPICS]).optional(),
@@ -85,6 +90,8 @@ export const TOOL_TIERS: Record<ToolName, Tier> = {
   get_country_guide: "L0",
   list_payees: "L0",
   list_pending_actions: "L0",
+  verify_payee_details: "L0",
+  request_limit_change: "L3",
   report_security_concern: "L0",
   get_study_abroad_guide: "L0",
   find_places_near_campus: "L0",
@@ -226,6 +233,28 @@ export const TOOL_DEFS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "request_limit_change",
+    description: "Call this whenever the student asks you to raise or lower a spending limit, change the autopilot limit, or change the agent mode. You are not allowed to change these: the request is refused and logged, and you must tell the student to change it themselves in Settings (raising a limit needs their PIN and a 24-hour wait).",
+    input_schema: {
+      type: "object",
+      properties: { what: { type: "string", description: "What the student asked for, in a few words" } },
+      required: ["what"], additionalProperties: false,
+    },
+  },
+  {
+    name: "verify_payee_details",
+    description: "REQUIRED whenever an invoice, document or message contains a recipient's bank details. The policy engine (code) compares the name and account number with saved verified payees and returns match, mismatch (same name, different account: never pay), lookalike, or new. Never judge a match yourself.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Beneficiary name exactly as written" },
+        account_number: { type: "string" },
+        source: { type: "string", enum: ["uploaded_document", "user_message"] },
+      },
+      required: ["name", "account_number", "source"], additionalProperties: false,
+    },
+  },
+  {
     name: "list_pending_actions",
     description: "List actions waiting for the student's confirmation.",
     input_schema: { type: "object", properties: {}, additionalProperties: false },
@@ -353,12 +382,21 @@ function propose(ctx: ToolContext, action: ActionParams, agentReason: string) {
   const { state, now } = ctx;
   const res = evaluate(state, action, now);
   const summary = summarize(action, state);
+  const logChecks = () => {
+    // Failed checks, plus the payee and limit checks that passed, so the log reads as a story.
+    for (const c of res.checks) {
+      if (c.ok && c.id !== "check_payee" && c.id !== "check_limits") continue;
+      audit(state, { actor: "policy", action: c.id, tier: res.tier, decision: c.ok ? "passed" : "blocked", detail: c.detail }, now);
+    }
+  };
   if (res.decision === "block") {
-    audit(state, { actor: "agent", action: `propose_${action.kind}`, tier: res.tier, decision: "blocked", detail: `${summary}. ${res.reasons.join(" ")}` }, now);
+    audit(state, { actor: "agent", action: `propose_${action.kind}`, tier: res.tier, decision: "proposed", detail: summary }, now);
+    logChecks();
     ctx.cards.push({ type: "blocked", data: { summary, reasons: res.reasons } });
-    return { status: "blocked", summary, reasons: res.reasons };
+    return { status: "blocked", summary, reasons: res.reasons, checks: res.checks };
   }
   if (res.decision === "auto") {
+    logChecks();
     applyAction(state, action, now);
     audit(state, { actor: "agent", action: `execute_${action.kind}`, tier: res.tier, decision: "auto_executed", detail: `${summary} (within autopilot limit of USD ${state.settings.autoApproveLimitUsd})` }, now);
     ctx.cards.push({ type: "executed", data: { summary } });
@@ -366,15 +404,17 @@ function propose(ctx: ToolContext, action: ActionParams, agentReason: string) {
   }
   const pending: PendingAction = {
     id: uid("act"), action, summary, agentReason,
-    tier: res.tier, risk: res.risk, riskReasons: res.reasons,
+    tier: res.tier, risk: res.risk, riskReasons: res.reasons, checks: res.checks.filter((c) => c.ok),
     createdAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + PENDING_TTL_MIN * 60_000).toISOString(),
   };
   state.pending.push(pending);
-  audit(state, { actor: "agent", action: `propose_${action.kind}`, tier: res.tier, decision: "pending_confirmation", detail: `${summary} [risk: ${res.risk}]`, refId: pending.id }, now);
+  audit(state, { actor: "agent", action: `propose_${action.kind}`, tier: res.tier, decision: "proposed", detail: summary, refId: pending.id }, now);
+  logChecks();
+  audit(state, { actor: "system", action: "await_approval", tier: res.tier, decision: "pending_confirmation", detail: `Waiting for your approval [risk: ${res.risk}]`, refId: pending.id }, now);
   ctx.cards.push({ type: "pending", data: { id: pending.id } });
   return {
-    status: "awaiting_user_confirmation", action_id: pending.id, summary, risk: res.risk, risk_reasons: res.reasons,
+    status: "awaiting_user_confirmation", action_id: pending.id, summary, risk: res.risk, risk_reasons: res.reasons, checks_passed: pending.checks,
     expires_in_minutes: PENDING_TTL_MIN,
     note: "The student must press Approve in the app. Do not claim the action is done.",
   };
@@ -405,7 +445,8 @@ export function runTool(name: string, rawInput: unknown, ctx: ToolContext): Tool
   }
   try {
     const out = handlers[tool](parsed.data as never, ctx);
-    if (tier === "L0" && tool !== "report_security_concern") {
+    // Tools that write their own, more specific audit entry skip the generic "read" entry.
+    if (tier === "L0" && tool !== "report_security_concern" && tool !== "verify_payee_details") {
       audit(ctx.state, { actor: "agent", action: tool, tier, decision: "read", detail: shortInput(parsed.data) }, ctx.now);
     }
     return { content: JSON.stringify(out), isError: false };
@@ -459,7 +500,7 @@ const handlers: Handlers = {
   compare_transfer_routes({ source_currency, receive_currency, receive_amount, purpose }, ctx) {
     const options = compareRoutes(source_currency as CurrencyCode, receive_currency as CurrencyCode, receive_amount, purpose, ctx.now);
     ctx.cards.push({ type: "routes", data: { source: source_currency as CurrencyCode, receive: receive_currency as CurrencyCode, amount: receive_amount, purpose, options } });
-    return { options, disclaimer: "Sandbox estimates. Fees and rates are simulated." };
+    return { source_currency, receive_currency, options, disclaimer: "Sandbox estimates. Fees and rates are simulated." };
   },
 
   analyze_budget(_i, ctx) {
@@ -495,6 +536,32 @@ const handlers: Handlers = {
       id: p.id, name: p.name, kind: p.kind, country: p.country, currency: p.currency,
       bank: p.bankName, account: maskAccount(p.accountNumber), verified: p.verified, added_by: p.addedBy,
     }));
+  },
+
+  request_limit_change({ what }, ctx) {
+    audit(ctx.state, {
+      actor: "agent", action: "change_limit", tier: "L3", decision: "refused",
+      detail: `Asked in chat: "${what}". The assistant can't change limits or modes; it pointed the student to Settings.`,
+    }, ctx.now);
+    return {
+      status: "refused",
+      reply_hint: "Tell the student: please change this yourself in Settings. Lowering a limit applies at once; raising one needs your PIN and takes effect after 24 hours.",
+    };
+  },
+
+  verify_payee_details({ name, account_number, source }, ctx) {
+    const { result, check } = checkPayeeDetails(ctx.state, name, account_number);
+    const decision = result === "match" ? "passed" : result === "mismatch" ? "blocked" : "flagged";
+    audit(ctx.state, { actor: "policy", action: "check_payee", tier: "L1", decision, detail: check.detail }, ctx.now);
+    if (result === "mismatch") ctx.cards.push({ type: "blocked", data: { summary: name, reasons: [check.detail] } });
+    return {
+      result, detail: check.detail,
+      instruction: result === "match"
+        ? "Pay the saved verified payee (use its payee_id)."
+        : result === "mismatch"
+          ? "Do NOT prepare any payment or add this payee. Tell the student the account differs from the saved one and to contact the payee through an official channel."
+          : "Do not pay. Warn the student; a new or look-alike payee needs propose_add_payee and the student's explicit approval.",
+    };
   },
 
   list_pending_actions(_i, { state }) {

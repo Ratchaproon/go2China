@@ -61,7 +61,7 @@ export function Onboarding({
 
         {/* Passport data page: fills in live as the student answers. */}
         <div className="mt-6 min-w-0 overflow-hidden rounded-2xl border border-border bg-surface shadow-[0_12px_32px_-16px_rgba(23,37,84,.35)]">
-          <div className="flex items-center justify-between bg-[#1d2f6b] px-5 py-3 text-[#f8faff]">
+          <div className="flex items-center justify-between bg-navy px-5 py-3 text-white">
             <span className="text-sm font-semibold">{d.studyPass}</span>
             <span className="text-2xl leading-none" aria-hidden>{dest.flag}</span>
           </div>

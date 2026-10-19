@@ -149,3 +149,36 @@ describe("guide topics", () => {
     expect(out.steps.some((s: { id: string }) => s.id === "ess_sim")).toBe(true);
   });
 });
+
+describe("audit story", () => {
+  it("logs proposal, policy checks and approval as separate entries", () => {
+    const s = freshState();
+    const out = JSON.parse(runTool("propose_transfer", {
+      payee_id: "payee_university", source_currency: "THB", receive_amount: 5000, route_id: "online_remit",
+      purpose: "tuition", reference: "S1234567 Ploy", reason: "Tuition",
+    }, ctx(s)).content);
+    decide(s, out.action_id, true, NOW);
+    const story = [...s.audit].reverse().map((e) => `${e.actor}:${e.action}:${e.decision}`);
+    const i = (x: string) => story.indexOf(x);
+    expect(i("agent:propose_transfer:proposed")).toBeGreaterThan(-1);
+    expect(i("policy:check_payee:passed")).toBeGreaterThan(i("agent:propose_transfer:proposed"));
+    expect(i("policy:check_limits:passed")).toBeGreaterThan(-1);
+    expect(i("user:approve_transfer:approved")).toBeGreaterThan(i("policy:check_limits:passed"));
+    expect(i("system:execute_transfer:executed")).toBeGreaterThan(i("user:approve_transfer:approved"));
+  });
+
+  it("verify_payee_details blocks a changed account and logs it", () => {
+    const s = freshState();
+    const out = JSON.parse(runTool("verify_payee_details", { name: "Demo University of China", account_number: "6210 9937 4402 8815", source: "uploaded_document" }, ctx(s)).content);
+    expect(out.result).toBe("mismatch");
+    expect(s.audit[0]).toMatchObject({ actor: "policy", action: "check_payee", decision: "blocked" });
+  });
+});
+
+describe("short-stay banking step", () => {
+  it("appears only for stays of 6 months or less in China", async () => {
+    const { stepsFor } = await import("@/lib/guide");
+    expect(stepsFor({ destCountry: "CN", studentType: "exchange", stayMonths: 5 }).map((s) => s.id)).toContain("cn_bank_short");
+    expect(stepsFor({ destCountry: "CN", studentType: "degree", stayMonths: 11 }).map((s) => s.id)).not.toContain("cn_bank_short");
+  });
+});

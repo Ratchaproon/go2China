@@ -129,3 +129,11 @@ export function compareRoutes(
     return a.totalCost - b.totalCost;
   });
 }
+
+/** How much the chosen option saves compared with a traditional bank wire (0 if none). */
+export function savingVsWire(options: RouteOption[], chosen?: RouteOption): number {
+  const wire = options.find((o) => o.routeId === "swift_wire" && o.eligible);
+  const pick = chosen ?? options.find((o) => o.eligible);
+  if (!wire || !pick || pick.routeId === wire.routeId) return 0;
+  return Math.max(0, wire.totalCost - pick.totalCost);
+}

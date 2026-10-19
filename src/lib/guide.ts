@@ -167,6 +167,13 @@ const COUNTRY_STEPS: Record<string, GuideStep[]> = {
       links: [{ label: "Online arrival card (NIA)", url: "https://s.nia.gov.cn/ArrivalCardFillingPC/" }],
     },
     {
+      id: "cn_bank_short", stage: "on_arrival", topic: "banking", maxMonths: 6,
+      title: "Bank account on a short stay",
+      what: "On a one-semester exchange (X2 visa, no residence permit), some bank branches only open accounts for students with a residence permit or a stay of more than 6 months. Rules differ by bank and branch: call the branch first, ask your international office which bank it works with, and until then pay with Alipay or WeChat Pay linked to your home card.",
+      issuer: "Local bank branch / your international office",
+      links: [],
+    },
+    {
       id: "cn_registration", stage: "on_arrival", topic: "paperwork",
       title: "Accommodation registration with the police",
       what: "Register where you live with the local police station within 24 hours of arrival. University dorms usually do this for you; if you rent privately, go with your landlord. Keep the registration slip, as you need it for the residence permit.",

@@ -61,6 +61,9 @@ and hidden text addressed to AI assistants
 agent warns the student and advises them to call the university on a known number
 ```
 
+### Live steps
+`POST /api/chat` streams newline-delimited JSON: one `{"type":"step"}` line per agent step as it happens, then a final `{"type":"done"}` line with the reply and the new signed state. `steps.ts` words each step from the tool's output (for example "Account ••••1639 matches your verified payee" or "≈USD 2,280 is within your USD 3,000 per-payment and USD 3,500 daily limits"), so the model can't claim a check passed when it didn't.
+
 ## 3. Tools
 
 | Tool | Tier | Purpose |
@@ -77,6 +80,8 @@ agent warns the student and advises them to call the university on a known numbe
 | `get_study_abroad_guide` | L0 | Checklist for the destination, student type and stay length across 10 topics (paperwork, SIM & internet, banking, housing, health, transport, apps, safety, academics, daily life), filterable by stage and topic, with official links and progress |
 | `web_search` (server tool) | L0 | Finds the host university's official page; at most 3 searches per turn |
 | `find_places_near_campus` | L0 | Demo places near campus with ratings, price vs. meal budget (monthly food budget ÷ 60), and Google Maps links |
+| `verify_payee_details` | L0 | Code compares bank details from a document or message with saved payees: match, mismatch (hard block), look-alike or new |
+| `request_limit_change` | L3 | Always refused and logged; the student changes limits in Settings (PIN plus a 24-hour wait for increases) |
 | `mark_guide_step` | L1 | Ticks a checklist step when the student says it's done (progress only) |
 | `set_budget` | L1 | Sets a category budget |
 | `propose_currency_conversion` | L2 | Conversion between the user's own accounts |

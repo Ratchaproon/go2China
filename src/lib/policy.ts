@@ -4,6 +4,7 @@ import {
   actionUsd, getAccount, outgoingTodayUsd, recentTransferCount,
 } from "./ledger";
 import { getCountry } from "./countries";
+import { effectiveLimit } from "./limits";
 
 // Deterministic policy engine. The LLM never decides whether money moves:
 // every proposed action is evaluated here, both when it is proposed and again
@@ -11,14 +12,29 @@ import { getCountry } from "./countries";
 
 export type Decision = "auto" | "confirm" | "block";
 
+export type CheckId = "check_payee" | "check_limits" | "check_balance" | "check_route" | "check_velocity" | "check_mode";
+
+/** One deterministic check and its outcome, worded by code (never by the model). */
+export interface PolicyCheck {
+  id: CheckId;
+  ok: boolean;
+  detail: string;
+}
+
 export interface PolicyResult {
   decision: Decision;
   tier: Tier;
   risk: RiskLevel;
   reasons: string[];
+  checks: PolicyCheck[];
 }
 
-export const LARGE_TRANSFER_USD = 10_000;
+const CHECK_ORDER: CheckId[] = ["check_payee", "check_limits", "check_balance", "check_route", "check_velocity", "check_mode"];
+
+const last4 = (n: string) => `••••${n.replace(/\W/g, "").slice(-4)}`;
+
+/** Above this, a payment is flagged for extra care (it can still be approved within limits). */
+export const LARGE_TRANSFER_USD = 2_500;
 export const VELOCITY_WINDOW_MIN = 10;
 export const VELOCITY_MAX = 3;
 export const NEW_PAYEE_HOURS = 24;
@@ -66,43 +82,60 @@ export function evaluate(state: LedgerState, a: ActionParams, now = new Date()):
   const block: string[] = [];
   const reasons: string[] = [];
   let risk: RiskLevel = "low";
+  const results = new Map<CheckId, PolicyCheck>();
+  const pass = (id: CheckId, detail: string) => {
+    if (!results.has(id)) results.set(id, { id, ok: true, detail });
+  };
+  const fail = (id: CheckId, detail: string) => {
+    block.push(detail);
+    const prev = results.get(id);
+    results.set(id, prev && !prev.ok ? { id, ok: false, detail: `${prev.detail} ${detail}` } : { id, ok: false, detail });
+  };
 
   if (s.agentMode === "advisor") {
-    block.push("Agent is in Advisor mode: it can analyse and plan, but cannot prepare money movements or add payees.");
+    fail("check_mode", "Agent is in Advisor mode: it can analyse and plan, but cannot prepare money movements or add payees.");
   }
 
   const usd = actionUsd(a, now);
-  if (usd > s.perTxnLimitUsd) block.push(`Amount (≈USD ${usd.toFixed(0)}) exceeds the per-transaction limit of USD ${s.perTxnLimitUsd}.`);
   if (a.kind !== "add_payee") {
     const today = outgoingTodayUsd(state, now);
-    if (today + usd > s.dailyLimitUsd) block.push(`Would exceed the daily limit of USD ${s.dailyLimitUsd} (already ≈USD ${today.toFixed(0)} today).`);
+    const perTxn = effectiveLimit(state, "perTxnLimitUsd");
+    const daily = effectiveLimit(state, "dailyLimitUsd");
+    if (usd > perTxn) fail("check_limits", `Amount (≈USD ${usd.toFixed(0)}) exceeds your per-payment limit of USD ${perTxn.toLocaleString("en")}.`);
+    if (today + usd > daily) fail("check_limits", `Would exceed your daily limit of USD ${daily.toLocaleString("en")} (already ≈USD ${today.toFixed(0)} today).`);
+    pass("check_limits", `≈USD ${usd.toFixed(0)} is within your USD ${perTxn.toLocaleString("en")} per-payment and USD ${daily.toLocaleString("en")} daily limits.`);
   }
 
   if (a.kind === "convert") {
     const p = a.params;
-    if (p.fromCurrency === p.toCurrency) block.push("Source and target currency are the same.");
-    if (!(p.amount > 0)) block.push("Amount must be positive.");
+    if (p.fromCurrency === p.toCurrency) fail("check_route", "Source and target currency are the same.");
+    if (!(p.amount > 0)) fail("check_balance", "Amount must be positive.");
     const acct = getAccount(state, p.fromCurrency);
-    if (!acct) block.push(`No ${p.fromCurrency} account.`);
-    else if (acct.balance < p.amount) block.push(`Insufficient ${p.fromCurrency} balance.`);
+    if (!acct) fail("check_balance", `No ${p.fromCurrency} account.`);
+    else if (acct.balance < p.amount) fail("check_balance", `Insufficient ${p.fromCurrency} balance.`);
+    pass("check_balance", `Enough ${p.fromCurrency} in your account.`);
   }
 
   if (a.kind === "transfer") {
     const p = a.params;
     const payee = state.payees.find((x) => x.id === p.payeeId);
     const route = getRoute(p.routeId);
-    if (!(p.receiveAmount > 0)) block.push("Amount must be positive.");
-    if (!payee) block.push("Payee not found. Payees must be added (and confirmed by the user) before paying them.");
-    if (!route) block.push("Unknown payment route.");
-    if (payee && payee.currency !== p.receiveCurrency) block.push(`Payee receives ${payee.currency}, not ${p.receiveCurrency}.`);
-    if (route && !route.purposes.includes(p.purpose)) block.push(`${route.name} cannot be used for ${p.purpose} payments.`);
-    if (route && p.purpose === "tuition" && !route.tuitionAccepted) block.push(`${route.name} is not accepted for tuition.`);
-    if (route && usd > route.maxUsd) block.push(`${route.name} has a limit of USD ${route.maxUsd}.`);
+    if (!(p.receiveAmount > 0)) fail("check_balance", "Amount must be positive.");
+    if (!payee) fail("check_payee", "Payee not found. Payees must be added (and confirmed by the user) before paying them.");
+    else if (!payee.verified) fail("check_payee", `${payee.name} is not a verified payee.`);
+    else if (payee.currency !== p.receiveCurrency) fail("check_payee", `Payee receives ${payee.currency}, not ${p.receiveCurrency}.`);
+    else pass("check_payee", `Paying ${payee.name}, account ${last4(payee.accountNumber)}, which matches your verified payee.`);
+    if (!route) fail("check_route", "Unknown payment route.");
+    if (route && !route.purposes.includes(p.purpose)) fail("check_route", `${route.name} cannot be used for ${p.purpose} payments.`);
+    if (route && p.purpose === "tuition" && !route.tuitionAccepted) fail("check_route", `${route.name} is not accepted for tuition.`);
+    if (route && usd > route.maxUsd) fail("check_route", `${route.name} has a limit of USD ${route.maxUsd}.`);
+    if (route) pass("check_route", `${route.name} can be used for ${p.purpose} payments.`);
     const acct = getAccount(state, p.sourceCurrency);
-    if (!acct) block.push(`No ${p.sourceCurrency} account.`);
-    else if (acct.balance < p.totalCost) block.push(`Insufficient ${p.sourceCurrency} balance (need ${p.totalCost}, have ${acct.balance}).`);
+    if (!acct) fail("check_balance", `No ${p.sourceCurrency} account.`);
+    else if (acct.balance < p.totalCost) fail("check_balance", `Insufficient ${p.sourceCurrency} balance (need ${p.totalCost}, have ${acct.balance}).`);
+    pass("check_balance", `Enough ${p.sourceCurrency} in your account.`);
     if (recentTransferCount(state, VELOCITY_WINDOW_MIN, now) >= VELOCITY_MAX) {
-      block.push(`Velocity limit: more than ${VELOCITY_MAX} transfers in ${VELOCITY_WINDOW_MIN} minutes. Try again later.`);
+      fail("check_velocity", `Velocity limit: more than ${VELOCITY_MAX} transfers in ${VELOCITY_WINDOW_MIN} minutes. Try again later.`);
     }
     if (payee) {
       const ageH = (now.getTime() - Date.parse(payee.addedAt)) / 3_600_000;
@@ -128,19 +161,27 @@ export function evaluate(state: LedgerState, a: ActionParams, now = new Date()):
   if (a.kind === "add_payee") {
     const p = a.params;
     const hit = watchlistHit(p.name);
-    if (hit) block.push(`Payee name matches the sanctions/fraud watchlist entry "${hit}".`);
-    try { getCountry(p.country); } catch { block.push(`Unknown country code ${p.country}.`); }
-    if (!/^[0-9A-Za-z\- ]{6,34}$/.test(p.accountNumber)) block.push("Account number format looks invalid.");
+    if (hit) fail("check_payee", `Payee name matches the sanctions/fraud watchlist entry "${hit}".`);
+    try { getCountry(p.country); } catch { fail("check_payee", `Unknown country code ${p.country}.`); }
+    if (!/^[0-9A-Za-z\- ]{6,34}$/.test(p.accountNumber)) fail("check_payee", "Account number format looks invalid.");
     const dupe = state.payees.find((x) => x.accountNumber.replace(/\W/g, "") === p.accountNumber.replace(/\W/g, ""));
-    if (dupe) block.push(`This account is already saved as payee "${dupe.name}".`);
+    if (dupe) fail("check_payee", `This account is already saved as payee "${dupe.name}".`);
     for (const existing of state.payees) {
-      if (existing.verified && nameSimilarity(existing.name, p.name) >= 0.6 && existing.accountNumber !== p.accountNumber) {
+      if (!existing.verified || existing.accountNumber.replace(/\W/g, "") === p.accountNumber.replace(/\W/g, "")) continue;
+      if (normalizeName(existing.name) === normalizeName(p.name)) {
+        // Changed bank details under a trusted name: the most common payment scam. Never approvable.
+        fail(
+          "check_payee",
+          `Account ${last4(p.accountNumber)} doesn't match your verified payee "${existing.name}" (${last4(existing.accountNumber)}). Bank details for a saved payee can't be changed from a document or chat. Contact them through their official website or a phone number you already know.`,
+        );
+      } else if (nameSimilarity(existing.name, p.name) >= 0.6) {
         risk = raise(risk, "high");
         reasons.push(
           `Possible invoice fraud: "${p.name}" looks like your verified payee "${existing.name}", but the bank account is different. Call the recipient on a number you already know before approving.`,
         );
       }
     }
+    pass("check_payee", "New payee: not on the watchlist and not a copy of a saved payee.");
     if (p.source === "uploaded_document") {
       risk = raise(risk, "medium");
       reasons.push("Bank details were read from an uploaded document. Verify them through an official channel.");
@@ -153,8 +194,40 @@ export function evaluate(state: LedgerState, a: ActionParams, now = new Date()):
     reasons.push(`Large amount (≥ USD ${LARGE_TRANSFER_USD.toLocaleString("en")}): enhanced review, keep proof of purpose.`);
   }
 
-  if (block.length) return { decision: "block", tier, risk: "high", reasons: [...block, ...reasons] };
+  const checks = CHECK_ORDER.flatMap((id) => (results.has(id) ? [results.get(id)!] : []));
+  if (block.length) return { decision: "block", tier, risk: "high", reasons: [...block, ...reasons], checks };
 
-  const canAuto = a.kind === "convert" && s.agentMode === "autopilot" && usd <= s.autoApproveLimitUsd && risk === "low";
-  return { decision: canAuto ? "auto" : "confirm", tier, risk, reasons };
+  const canAuto = a.kind === "convert" && s.agentMode === "autopilot" && usd <= effectiveLimit(state, "autoApproveLimitUsd") && risk === "low";
+  return { decision: canAuto ? "auto" : "confirm", tier, risk, reasons, checks };
+}
+
+export type PayeeMatch = "match" | "mismatch" | "lookalike" | "new";
+
+/**
+ * Compare bank details read from a document or message with saved payees.
+ * The model must call this instead of judging a match itself.
+ */
+export function checkPayeeDetails(state: LedgerState, name: string, accountNumber: string): { result: PayeeMatch; check: PolicyCheck } {
+  const acct = accountNumber.replace(/\W/g, "");
+  for (const p of state.payees) {
+    if (!p.verified || normalizeName(p.name) !== normalizeName(name)) continue;
+    if (p.accountNumber.replace(/\W/g, "") === acct) {
+      return { result: "match", check: { id: "check_payee", ok: true, detail: `Account ${last4(acct)} matches your verified payee "${p.name}".` } };
+    }
+    return {
+      result: "mismatch",
+      check: {
+        id: "check_payee", ok: false,
+        detail: `Account ${last4(acct)} doesn't match your verified payee "${p.name}" (${last4(p.accountNumber)}). No payment prepared. Bank details for a saved payee can't be changed from a document or chat. Contact them through their official website or a phone number you already know.`,
+      },
+    };
+  }
+  const similar = state.payees.find((p) => p.verified && nameSimilarity(p.name, name) >= 0.6);
+  if (similar) {
+    return {
+      result: "lookalike",
+      check: { id: "check_payee", ok: false, detail: `"${name}" looks like your verified payee "${similar.name}" but isn't the same, and the account (${last4(acct)}) is different. Treat as possible invoice fraud.` },
+    };
+  }
+  return { result: "new", check: { id: "check_payee", ok: false, detail: `"${name}" (${last4(acct)}) is not a saved payee. Adding it needs your approval.` } };
 }

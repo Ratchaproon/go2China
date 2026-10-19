@@ -2,6 +2,8 @@ import { type CurrencyCode, getCountry, guideFor, roundTo, CURRENCIES } from "./
 import { fromUsd, toUsd } from "./fx";
 import { getRoute, type Purpose } from "./routes";
 import type { StudentType } from "./guide";
+import type { PolicyCheck } from "./policy";
+import type { LimitKey, ScheduledLimit } from "./limits";
 
 // The sandbox bank. All balances and transactions are simulated; nothing here
 // touches a real financial institution.
@@ -110,6 +112,8 @@ export interface PendingAction {
   tier: Tier;
   risk: RiskLevel;
   riskReasons: string[];
+  /** Policy checks that passed when the action was proposed, worded by code. */
+  checks?: PolicyCheck[];
   createdAt: string;
   expiresAt: string;
 }
@@ -133,12 +137,15 @@ export interface Settings {
   dailyLimitUsd: number;
 }
 
-export type AuditDecision = "read" | "auto_executed" | "pending_confirmation" | "approved" | "rejected" | "blocked" | "expired" | "flagged";
+export type AuditDecision =
+  | "read" | "proposed" | "passed" | "auto_executed" | "pending_confirmation" | "approved"
+  | "rejected" | "blocked" | "expired" | "flagged" | "refused" | "scheduled" | "executed";
 
 export interface AuditEntry {
   id: string;
   ts: string;
-  actor: "agent" | "user" | "system";
+  /** "policy" = the deterministic policy engine (code), never the model. */
+  actor: "agent" | "user" | "system" | "policy";
   action: string;
   tier: Tier;
   decision: AuditDecision;
@@ -165,13 +172,16 @@ export interface LedgerState {
   settings: Settings;
   /** Guide checklist step id → done. Progress is tracked only; the app never files documents. */
   checklist?: Record<string, boolean>;
+  /** Limit increases waiting out the cooling-off period. */
+  scheduledLimits?: Partial<Record<LimitKey, ScheduledLimit>>;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   agentMode: "copilot",
   autoApproveLimitUsd: 50,
-  perTxnLimitUsd: 15_000,
-  dailyLimitUsd: 20_000,
+  // About one semester's tuition in most Asian destinations; hard maximums live in limits.ts.
+  perTxnLimitUsd: 3_000,
+  dailyLimitUsd: 3_500,
 };
 
 const MAX_AUDIT = 200;

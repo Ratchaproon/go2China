@@ -1,52 +1,57 @@
 @import "tailwindcss";
 
 /*
- * go2China visual language: travel documents.
- * Passport-ink navy for text and primary actions, a cool visa-page paper
- * background, and one marigold "boarding pass" accent reserved for the
- * moment a student approves money moving. Status colours are only for status.
+ * go2China visual language: a calm digital-bank look in trust blue and white,
+ * in line with the competition host's blue-and-white banking style (colours
+ * only; no third-party logos or names). Navy text, one blue for actions and
+ * links, and a red underline only for the active tab. Status colours are only
+ * for status.
  */
 :root {
-  --bg: #eef1f6;
+  --bg: #f2f5fa;
   --surface: #ffffff;
-  --surface-2: #e4e9f1;
-  --border: #d3dae6;
-  --text: #141c3a;
-  --muted: #5a6482;
-  --brand: #1f3a8a;
-  --brand-soft: #e3e9fa;
-  --ink: #172554;
-  --on-ink: #f8faff;
-  --accent: #e8a317;
-  --on-accent: #1a1405;
-  --ok: #0e7a5f;
-  --ok-soft: #ddf3ea;
-  --warn: #a35b00;
-  --warn-soft: #fcefd9;
-  --bad: #b4232f;
-  --bad-soft: #fbe3e5;
+  --surface-2: #f5f8fc;
+  --border: #dfe6f0;
+  --text: #0f1b3d;
+  --muted: #5b6b86;
+  --brand: #1f5bb5;
+  --brand-soft: #e7effa;
+  --ink: #1f5bb5;
+  --on-ink: #ffffff;
+  --navy: #12306b;
+  --star: #e8a317;
+  --accent: #d7262e;
+  --on-accent: #ffffff;
+  --ok: #12805c;
+  --ok-soft: #e3f5ec;
+  --warn: #9a5800;
+  --warn-soft: #fdf1dc;
+  --bad: #c9252d;
+  --bad-soft: #fdeaea;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0b1026;
-    --surface: #141b3a;
-    --surface-2: #1c2550;
-    --border: #2a3566;
-    --text: #e9edfa;
-    --muted: #9aa5c8;
-    --brand: #9db4ff;
-    --brand-soft: #1f2a5c;
-    --ink: #dce4ff;
-    --on-ink: #0b1026;
-    --accent: #f2b53a;
-    --on-accent: #1a1405;
-    --ok: #4ccb9c;
-    --ok-soft: #10302a;
-    --warn: #f4b860;
+    --bg: #0b1220;
+    --surface: #121b2e;
+    --surface-2: #172238;
+    --border: #24324d;
+    --text: #e8eef8;
+    --muted: #93a3bf;
+    --brand: #79a8ff;
+    --brand-soft: #16284a;
+    --ink: #3b78dc;
+    --on-ink: #ffffff;
+    --navy: #2a4f96;
+    --star: #f2b53a;
+    --accent: #ff5a61;
+    --on-accent: #ffffff;
+    --ok: #45c992;
+    --ok-soft: #0f2e24;
+    --warn: #f2b660;
     --warn-soft: #33260e;
-    --bad: #ff7a86;
-    --bad-soft: #3a1820;
+    --bad: #ff7077;
+    --bad-soft: #3a171c;
   }
 }
 
@@ -60,6 +65,8 @@
   --color-brand: var(--brand);
   --color-brand-soft: var(--brand-soft);
   --color-ink: var(--ink);
+  --color-navy: var(--navy);
+  --color-star: var(--star);
   --color-on-ink: var(--on-ink);
   --color-accent: var(--accent);
   --color-on-accent: var(--on-accent);
@@ -78,7 +85,7 @@ html, body {
 }
 
 body {
-  font-family: var(--font-plex), var(--font-plex-thai), ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Hiragino Sans", "Malgun Gothic", "Noto Sans", sans-serif;
+  font-family: var(--font-jakarta), var(--font-plex-thai), ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Hiragino Sans", "Malgun Gothic", "Noto Sans", sans-serif;
   -webkit-font-smoothing: antialiased;
   line-height: 1.5;
 }

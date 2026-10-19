@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluate, nameSimilarity, watchlistHit } from "@/lib/policy";
+import { checkPayeeDetails, evaluate, nameSimilarity, watchlistHit } from "@/lib/policy";
 import { freshState, NOW } from "./helpers";
 import type { ActionParams } from "@/lib/ledger";
 
@@ -28,7 +28,7 @@ describe("policy tiers and modes", () => {
   it("blocks amounts over the per-transaction limit", () => {
     const r = evaluate(freshState({ perTxnLimitUsd: 100 }), convert(10_000), NOW);
     expect(r.decision).toBe("block");
-    expect(r.reasons.join(" ")).toMatch(/per-transaction limit/);
+    expect(r.reasons.join(" ")).toMatch(/per-payment limit/);
   });
 
   it("blocks when balance is insufficient", () => {
@@ -61,10 +61,20 @@ describe("transfers", () => {
     s.accounts[0].balance = 1_000_000;
     const r = evaluate(s, {
       kind: "transfer",
-      params: { payeeId: "payee_university", sourceCurrency: "THB", receiveAmount: 80_000, receiveCurrency: "CNY", routeId: "uni_platform", purpose: "tuition", reference: "S1234567 Ploy INV-1", totalCost: 380_000, feeTotal: 0 },
+      params: { payeeId: "payee_university", sourceCurrency: "THB", receiveAmount: 19_000, receiveCurrency: "CNY", routeId: "uni_platform", purpose: "tuition", reference: "S1234567 Ploy INV-1", totalCost: 90_000, feeTotal: 0 },
     }, NOW);
     expect(r.decision).toBe("confirm");
     expect(r.risk).toBe("high");
+  });
+
+  it("blocks transfers above the hard maximum even if an old session had higher limits", () => {
+    const s = freshState({ perTxnLimitUsd: 15_000, dailyLimitUsd: 20_000 });
+    s.accounts[0].balance = 1_000_000;
+    const r = evaluate(s, {
+      kind: "transfer",
+      params: { payeeId: "payee_university", sourceCurrency: "THB", receiveAmount: 80_000, receiveCurrency: "CNY", routeId: "uni_platform", purpose: "tuition", reference: "S1234567 Ploy INV-1", totalCost: 380_000, feeTotal: 0 },
+    }, NOW);
+    expect(r.decision).toBe("block");
   });
 });
 
@@ -92,5 +102,36 @@ describe("payee screening", () => {
   it("name similarity is token based", () => {
     expect(nameSimilarity("Demo University of China", "demo university of china finance")).toBe(1);
     expect(nameSimilarity("Alice Wong", "Bob Lee")).toBe(0);
+  });
+});
+
+describe("changed bank details under a trusted name", () => {
+  it("blocks adding a payee with the exact name of a verified payee but a different account", () => {
+    const s = freshState();
+    const r = evaluate(s, {
+      kind: "add_payee",
+      params: { name: "Demo University of China", kind: "university", country: "CN", currency: "CNY", bankName: "Global Express Settlement Bank", accountNumber: "6210993744028815", source: "uploaded_document" },
+    }, NOW);
+    expect(r.decision).toBe("block");
+    expect(r.checks.find((c) => c.id === "check_payee")?.ok).toBe(false);
+    expect(r.reasons.join(" ")).toMatch(/doesn't match your verified payee/);
+  });
+
+  it("checkPayeeDetails: match, mismatch, lookalike and new", () => {
+    const s = freshState();
+    const uni = s.payees.find((p) => p.id === "payee_university")!;
+    expect(checkPayeeDetails(s, uni.name, uni.accountNumber).result).toBe("match");
+    expect(checkPayeeDetails(s, uni.name, "6210993744028815").result).toBe("mismatch");
+    expect(checkPayeeDetails(s, `${uni.name} Finance Office`, "6210993744028815").result).toBe("lookalike");
+    expect(checkPayeeDetails(s, "Someone Else", "123456789").result).toBe("new");
+  });
+
+  it("records passed checks in plain words for transfers", () => {
+    const r = evaluate(freshState(), {
+      kind: "transfer",
+      params: { payeeId: "payee_university", sourceCurrency: "THB", receiveAmount: 1000, receiveCurrency: "CNY", routeId: "uni_platform", purpose: "tuition", reference: "S1234567", totalCost: 4800, feeTotal: 0 },
+    }, NOW);
+    expect(r.checks.find((c) => c.id === "check_payee")?.detail).toMatch(/matches your verified payee/);
+    expect(r.checks.find((c) => c.id === "check_limits")?.ok).toBe(true);
   });
 });

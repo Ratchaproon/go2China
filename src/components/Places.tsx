@@ -16,7 +16,7 @@ import { ExtLink } from "./Markdown";
 function Stars({ rating }: { rating: number }) {
   const full = Math.round(rating);
   return (
-    <span className="inline-flex gap-px align-[-0.12em] text-accent" aria-label={`${rating} / 5`}>
+    <span className="inline-flex gap-px align-[-0.12em] text-star" aria-label={`${rating} / 5`}>
       {[0, 1, 2, 3, 4].map((i) => (
         <Star key={i} aria-hidden className={`h-3.5 w-3.5 ${i < full ? "fill-current" : "opacity-30"}`} strokeWidth={1.5} />
       ))}

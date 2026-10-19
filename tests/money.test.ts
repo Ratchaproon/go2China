@@ -22,3 +22,10 @@ describe("routes", () => {
     expect(opts.find((o) => o.routeId === "wallet_topup")!.eligible).toBe(false);
   });
 });
+
+describe("saving vs bank wire", () => {
+  it("is positive when a cheaper eligible route exists", async () => {
+    const { savingVsWire } = await import("@/lib/routes");
+    expect(savingVsWire(compareRoutes("THB", "CNY", 16_300, "tuition", NOW))).toBeGreaterThan(0);
+  });
+});

@@ -1,11 +1,13 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Compass, FileText, Flag, type LucideIcon, MapPin, MessageCircle, Paperclip, Plane, ReceiptText, Settings as SettingsIcon, Wallet, Wrench, X } from "lucide-react";
+import { Compass, FileText, Flag, type LucideIcon, MapPin, MessageCircle, Paperclip, ReceiptText, Settings as SettingsIcon, ShieldCheck, Wallet, X } from "lucide-react";
 import { Ic } from "@/components/icons";
+import { StepsCard } from "@/components/Cards";
 import { CardView } from "@/components/Cards";
 import { Markdown } from "@/components/Markdown";
 import { Onboarding, type OnboardingValues } from "@/components/Onboarding";
-import { AccountsStrip, ActivityPanel, SettingsPanel, WalletPanel } from "@/components/Panels";
+import { type DemoUser, Login } from "@/components/Login";
+import { AccountsStrip, ActivityPanel, SettingsPanel, TodoCard, WalletPanel } from "@/components/Panels";
 import { GuidePanel } from "@/components/Guide";
 import { PlacesPanel } from "@/components/Places";
 import type { GuideStep } from "@/lib/guide";
@@ -15,7 +17,10 @@ import { getCountry } from "@/lib/countries";
 import { t } from "@/lib/i18n";
 import { renderInvoice } from "@/lib/invoice";
 import type { Lang, LedgerState, Settings } from "@/lib/ledger";
+import type { LimitKey } from "@/lib/limits";
+import type { SaveResult } from "@/components/Panels";
 import type { UiCard } from "@/lib/tools";
+import type { AgentStep } from "@/lib/steps";
 
 type Tab = "chat" | "wallet" | "guide" | "places" | "activity" | "settings";
 
@@ -25,6 +30,9 @@ interface Msg {
   text: string;
   cards?: UiCard[];
   trace?: ToolTraceEntry[];
+  steps?: AgentStep[];
+  /** True while the agent is still working on this reply. */
+  live?: boolean;
   attachmentName?: string;
   error?: boolean;
 }
@@ -34,7 +42,15 @@ interface Saved {
   messages: Msg[];
 }
 
+// How much power the assistant has, visible on every screen: grey = read-only, blue = you approve everything, orange = some actions run on their own.
+const MODE_STYLE: Record<Settings["agentMode"], { pill: string; text: string }> = {
+  advisor: { pill: "border-border bg-surface-2", text: "text-muted" },
+  copilot: { pill: "border-brand/25 bg-brand-soft", text: "text-brand" },
+  autopilot: { pill: "border-warn/30 bg-warn-soft", text: "text-warn" },
+};
+
 const STORAGE_KEY = "go2china:v1";
+const AUTH_KEY = "go2china:auth";
 const MAX_FILE_BYTES = 3_000_000;
 const ACCEPT = ["image/png", "image/jpeg", "image/webp", "image/gif", "application/pdf"] as const;
 
@@ -63,6 +79,7 @@ export default function Home() {
   const [error, setError] = useState("");
   const [onboardingLang, setOnboardingLang] = useState<Lang>("en");
   const [prevProfile, setPrevProfile] = useState<Partial<OnboardingValues>>({});
+  const [user, setUser] = useState<DemoUser | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -79,10 +96,12 @@ export default function Home() {
   const d = t(lang);
 
   useEffect(() => {
+    setUser(store.get<DemoUser>(AUTH_KEY));
     const saved = store.get<Saved>(STORAGE_KEY);
     if (saved?.token) {
       setToken(saved.token);
-      setMessages(saved.messages ?? []);
+      // A reply interrupted by a reload can't resume streaming.
+      setMessages((saved.messages ?? []).map((m) => (m.live ? { ...m, live: false } : m)));
     }
     setLoaded(true);
   }, []);
@@ -136,15 +155,51 @@ export default function Home() {
     setInput("");
     setAttachment(null);
     setBusy(true);
+    const replyId = mid();
+    const patch = (fn: (m: Msg) => Msg) => setMessages((ms) => ms.map((m) => (m.id === replyId ? fn(m) : m)));
     try {
-      const r = await api<{ token: string; text: string; cards: UiCard[]; trace: ToolTraceEntry[] }>("/api/chat", {
-        token, message: text.trim(), history, attachment: att ?? undefined,
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, message: text.trim(), history, attachment: att ?? undefined }),
       });
-      setToken(r.token);
-      setMessages((ms) => [...ms, { id: mid(), role: "assistant", text: r.text, cards: r.cards, trace: r.trace }]);
+      if (!res.ok || !res.body) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `Request failed (${res.status})`);
+      }
+      setMessages((ms) => [...ms, { id: replyId, role: "assistant", text: "", steps: [], live: true }]);
+      // Newline-delimited JSON: step lines while the agent works, then one done/error line.
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      let finished = false;
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let nl: number;
+        while ((nl = buf.indexOf("\n")) >= 0) {
+          const line = buf.slice(0, nl).trim();
+          buf = buf.slice(nl + 1);
+          if (!line) continue;
+          const ev = JSON.parse(line);
+          if (ev.type === "step") patch((m) => ({ ...m, steps: [...(m.steps ?? []), ev.step] }));
+          else if (ev.type === "done") {
+            finished = true;
+            setToken(ev.token);
+            patch((m) => ({ ...m, text: ev.text, cards: ev.cards, trace: ev.trace, steps: ev.steps, live: false }));
+          } else if (ev.type === "error") {
+            throw new Error(ev.message);
+          }
+        }
+      }
+      if (!finished) throw new Error(d.errorGeneric);
     } catch (e) {
       handleAuthFailure(e as Error);
-      setMessages((ms) => [...ms, { id: mid(), role: "notice", text: (e as Error).message || d.errorGeneric, error: true }]);
+      setMessages((ms) => [
+        ...ms.map((m) => (m.id === replyId ? { ...m, live: false } : m)),
+        { id: mid(), role: "notice" as const, text: (e as Error).message || d.errorGeneric, error: true },
+      ]);
     } finally {
       setBusy(false);
     }
@@ -166,15 +221,17 @@ export default function Home() {
     }
   }
 
-  async function saveSettings(s: Partial<Settings> & { language?: Lang }) {
-    if (!token) return;
+  type SettingsBody = Partial<Settings> & { language?: Lang; pin?: string; cancel?: LimitKey };
+  async function saveSettings(body: SettingsBody): Promise<SaveResult> {
+    if (!token) return { ok: false, message: d.errorGeneric };
     setBusy(true);
     try {
-      const r = await api<{ token: string }>("/api/settings", { token, ...s });
+      const r = await api<{ token: string }>("/api/settings", { token, ...body });
       setToken(r.token);
+      return { ok: true };
     } catch (e) {
       handleAuthFailure(e as Error);
-      setError((e as Error).message);
+      return { ok: false, code: (e as Error & { code?: string }).code, message: (e as Error).message };
     } finally {
       setBusy(false);
     }
@@ -192,6 +249,11 @@ export default function Home() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function ask(text: string) {
+    setTab("chat");
+    send(text, null);
   }
 
   function explainStep(s: GuideStep) {
@@ -233,7 +295,20 @@ export default function Home() {
     setMessages([]);
   }
 
+  function signIn(u: DemoUser) {
+    store.set(AUTH_KEY, u);
+    setUser(u);
+  }
+
+  function signOut() {
+    // Signing out keeps the sandbox wallet on this device, like closing a banking app.
+    store.remove(AUTH_KEY);
+    setUser(null);
+    setTab("chat");
+  }
+
   if (!loaded) return null;
+  if (!user) return <Login lang={lang} onLang={setOnboardingLang} onSignIn={signIn} />;
   if (!token || !state) {
     return <Onboarding initial={{ ...prevProfile, language: onboardingLang }} busy={busy} error={error} onSubmit={start} />;
   }
@@ -253,36 +328,54 @@ export default function Home() {
   return (
     <div className="flex min-h-dvh flex-col">
       <header className="sticky top-0 z-10 border-b border-border bg-surface/95 backdrop-blur">
-        <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-2.5">
-          <img src="/icon.svg" alt="" className="h-8 w-8" />
+        <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 pb-2 pt-3 sm:pt-4">
+          <img src="/icon.svg" alt="" className="h-9 w-9 rounded-lg sm:h-10 sm:w-10" />
           <div className="min-w-0 flex-1">
-            <p className="text-[15px] font-semibold leading-tight tracking-tight">go2China</p>
-            <p className="truncate text-xs text-muted" title={`${home.name} to ${dest.name}`}>
-              {home.flag} <span className="font-semibold text-text">{home.code}</span>
-              <Plane aria-hidden className="mx-1.5 inline h-3.5 w-3.5 align-[-0.15em] text-brand" />
-              {dest.flag} <span className="font-semibold text-text">{dest.code}</span>
+            <p className="text-base font-bold leading-tight tracking-tight sm:text-lg">go2China</p>
+            <p className="truncate text-xs font-medium text-muted">
+              <span title={home.name}>{home.flag} {home.name}</span>
+              <span aria-hidden className="mx-1">→</span>
+              <span title={dest.name}>{dest.flag} {dest.name}</span>
+              <span className="ml-2 rounded bg-surface-2 px-1.5 py-px text-[11px]">{d.sandbox}</span>
             </p>
           </div>
-          <span className="rounded-full border border-border px-2.5 py-1 text-xs font-medium text-muted">{modeLabel}</span>
+          <button
+            onClick={() => setTab("settings")}
+            className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-left sm:px-4 sm:py-2 ${MODE_STYLE[state.settings.agentMode].pill}`}
+            title={d.agentMode}
+          >
+            <ShieldCheck aria-hidden className={`h-4 w-4 shrink-0 ${MODE_STYLE[state.settings.agentMode].text}`} />
+            <span className="leading-tight">
+              <span className={`block text-xs font-bold sm:text-sm ${MODE_STYLE[state.settings.agentMode].text}`}>{modeLabel}</span>
+              <span className="hidden text-xs text-muted sm:block">{d.modeHint[state.settings.agentMode]}</span>
+            </span>
+          </button>
         </div>
-        <nav className="mx-auto hidden max-w-3xl gap-5 px-4 sm:flex">
+        <nav className="mx-auto hidden max-w-5xl gap-7 px-4 sm:flex">
           {tabs.map((x) => (
             <button
               key={x.id}
               onClick={() => setTab(x.id)}
-              className={`-mb-px border-b-2 pb-2.5 pt-1 text-sm font-medium ${tab === x.id ? "border-brand text-text" : "border-transparent text-muted hover:text-text"}`}
+              aria-current={tab === x.id ? "page" : undefined}
+              className={`relative -mb-px border-b-[3px] px-0.5 pb-2.5 pt-2 text-[15px] ${tab === x.id ? "border-accent font-bold text-text" : "border-transparent font-medium text-muted hover:text-text"}`}
             >
-              {x.label}{x.id === "wallet" && state.pending.length > 0 ? ` (${state.pending.length})` : ""}
+              {x.label}
+              {x.id === "wallet" && state.pending.length > 0 && (
+                <span className="absolute -right-2 top-2 h-2 w-2 rounded-full bg-accent" aria-label={`${state.pending.length} ${d.pendingCount}`} />
+              )}
             </button>
           ))}
         </nav>
       </header>
 
-      <main className="mx-auto w-full max-w-3xl flex-1 px-4 pb-44 pt-4 sm:pb-36">
+      <main className={`mx-auto w-full flex-1 px-4 pb-44 pt-5 sm:pb-36 sm:pt-8 ${tab === "chat" ? "max-w-3xl" : "max-w-5xl"}`}>
         {tab === "chat" && (
           <>
             <AccountsStrip state={state} lang={lang} d={d} />
             <div className="mt-4 space-y-4">
+              {messages.length === 0 && (
+                <TodoCard state={state} lang={lang} d={d} onOpenWallet={() => setTab("wallet")} onPayTuition={() => demoInvoice(false)} onAsk={ask} />
+              )}
               {messages.length === 0 && (
                 <div className="overflow-hidden rounded-2xl border border-border bg-surface">
                   <div className="px-5 pb-3 pt-5">
@@ -290,7 +383,8 @@ export default function Home() {
                     <p className="mt-1 text-muted">{d.tagline}</p>
                   </div>
                   <ul className="divide-y divide-border border-y border-border">
-                    {[d.guideSuggestion, d.placesSuggestion, ...d.suggestions].map((s) => (
+                    {/* Money first (tuition, top-up, budget, bank account), then the guide and places. */}
+                    {[d.suggestions[0], d.suggestions[3], d.suggestions[2], d.suggestions[1], d.guideSuggestion, d.placesSuggestion].map((s) => (
                       <li key={s}>
                         <button onClick={() => send(s)} className="w-full px-5 py-3 text-left text-[15px] hover:bg-bg">
                           {s}
@@ -323,25 +417,20 @@ export default function Home() {
                   )}
                   {m.role === "assistant" && (
                     <div className="max-w-[95%] space-y-3">
+                      {(m.live || (m.steps?.length ?? 0) > 0 || (m.trace?.length ?? 0) > 0) && (
+                        <StepsCard steps={m.steps} trace={m.trace} cards={m.cards ?? []} state={state} d={d} live={m.live} />
+                      )}
                       {m.text && (
                         <div className="rounded-2xl rounded-bl-sm bg-surface px-4 py-3 leading-relaxed shadow-[0_1px_0_var(--border)]">
                           <Markdown text={m.text} />
                         </div>
                       )}
-                      {m.cards?.map((c, i) => <CardView key={i} card={c} state={state} lang={lang} d={d} busy={busy} onDecide={decideAction} onOpenGuide={() => setTab("guide")} onOpenPlaces={() => setTab("places")} />)}
-                      {m.trace && m.trace.length > 0 && (
-                        <details className="text-xs text-muted">
-                          <summary className="cursor-pointer"><Ic icon={Wrench} className="mr-1" />{m.trace.length} tool calls</summary>
-                          <ul className="mt-1 space-y-0.5 font-mono">
-                            {m.trace.map((x, i) => <li key={i}>{x.tier} · {x.name}{x.isError ? " (error)" : ""}</li>)}
-                          </ul>
-                        </details>
-                      )}
+                      {m.cards?.map((c, i) => <CardView key={i} card={c} state={state} lang={lang} d={d} busy={busy} onDecide={decideAction} onOpenGuide={() => setTab("guide")} onOpenPlaces={() => setTab("places")} onAsk={ask} />)}
                     </div>
                   )}
                 </div>
               ))}
-              {busy && (
+              {busy && !messages.some((m) => m.live) && (
                 <div className="flex w-fit items-center gap-2 rounded-2xl border border-border bg-surface px-4 py-3 text-sm text-muted">
                   <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-brand" /> {d.thinking}
                 </div>
@@ -350,17 +439,19 @@ export default function Home() {
             </div>
           </>
         )}
-        {tab === "wallet" && <WalletPanel state={state} lang={lang} d={d} busy={busy} onDecide={decideAction} />}
+        {tab === "wallet" && <WalletPanel state={state} lang={lang} d={d} busy={busy} onDecide={decideAction} onAsk={ask} />}
         {tab === "guide" && <GuidePanel state={state} d={d} busy={busy} onToggle={toggleStep} onExplain={explainStep} />}
         {tab === "places" && <PlacesPanel state={state} lang={lang} d={d} />}
-        {tab === "activity" && <ActivityPanel state={state} d={d} />}
+        {tab === "activity" && <ActivityPanel state={state} lang={lang} d={d} />}
         {tab === "settings" && (
           <SettingsPanel
             key={state.sessionId}
-            state={state} d={d} busy={busy}
+            state={state} lang={lang} d={d} busy={busy}
             onSave={(s) => saveSettings(s)}
-            onLanguage={(l) => saveSettings({ language: l })}
+            onLanguage={(l) => { void saveSettings({ language: l }); }}
             onReset={reset}
+            onSignOut={signOut}
+            phone={user.contact ?? (user as { phone?: string }).phone ?? ""}
           />
         )}
       </main>
@@ -426,7 +517,7 @@ export default function Home() {
               key={x.id}
               onClick={() => setTab(x.id)}
               aria-current={tab === x.id ? "page" : undefined}
-              className={`relative flex min-w-0 flex-1 flex-col items-center border-t-2 px-0.5 pt-1.5 text-[11px] leading-tight ${tab === x.id ? "border-brand font-semibold text-text" : "border-transparent text-muted"}`}
+              className={`relative flex min-w-0 flex-1 flex-col items-center border-t-2 px-0.5 pt-1.5 text-[11px] leading-tight ${tab === x.id ? "border-accent font-bold text-brand" : "border-transparent text-muted"}`}
             >
               <x.icon aria-hidden className="mb-0.5 h-5 w-5" strokeWidth={tab === x.id ? 2.25 : 1.75} />
               {x.label}

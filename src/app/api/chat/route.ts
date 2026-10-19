@@ -32,13 +32,36 @@ export async function POST(req: Request) {
     const { token, message, history, attachment } = parsed.data;
     const state = decodeState(token);
     expirePending(state);
-    const result = await runAgent(state, history, message, attachment);
-    return NextResponse.json({ token: encodeState(state), ...result });
+
+    // Stream newline-delimited JSON: one {"type":"step"} line per agent step as it happens,
+    // then a final {"type":"done"} (or {"type":"error"}) line with the new signed state.
+    const enc = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        const send = (obj: unknown) => controller.enqueue(enc.encode(`${JSON.stringify(obj)}\n`));
+        try {
+          const result = await runAgent(state, history, message, attachment, (step) => send({ type: "step", step }));
+          send({ type: "done", token: encodeState(state), ...result });
+        } catch (e) {
+          send({ type: "error", message: agentErrorMessage(e) });
+        } finally {
+          controller.close();
+        }
+      },
+    });
+    return new Response(stream, {
+      headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-store", "X-Accel-Buffering": "no" },
+    });
   } catch (e) {
-    if (e instanceof Anthropic.AuthenticationError) return jsonError(503, "The AI service is not configured (missing or invalid ANTHROPIC_API_KEY).");
-    if (e instanceof Anthropic.RateLimitError) return jsonError(429, "The AI service is busy. Please try again in a few seconds.");
-    if (e instanceof Anthropic.APIConnectionError) return jsonError(503, "Could not reach the AI service. Check the network connection.");
-    if (e instanceof Anthropic.APIError) return jsonError(502, `AI service error (${e.status ?? "unknown"}).`);
     return handleError(e);
   }
+}
+
+function agentErrorMessage(e: unknown): string {
+  if (e instanceof Anthropic.AuthenticationError) return "The AI service is not configured (missing or invalid ANTHROPIC_API_KEY).";
+  if (e instanceof Anthropic.RateLimitError) return "The AI service is busy. Please try again in a few seconds.";
+  if (e instanceof Anthropic.APIConnectionError) return "Could not reach the AI service. Check the network connection.";
+  if (e instanceof Anthropic.APIError) return `AI service error (${e.status ?? "unknown"}).`;
+  console.error(e);
+  return "Something went wrong. Please try again.";
 }
