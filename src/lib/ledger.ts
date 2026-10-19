@@ -44,6 +44,8 @@ export interface Txn {
   description: string;
   counterparty?: string;
   routeId?: string;
+  /** Set on spending the student logged themselves (form or chat); only these can be deleted. */
+  logged?: "form" | "chat";
 }
 
 export type PayeeKind = "university" | "landlord" | "person" | "merchant";
@@ -216,7 +218,11 @@ export function createInitialState(profile: Profile, now = new Date()): LedgerSt
   const home = getCountry(profile.homeCountry);
   const dest = getCountry(profile.destCountry);
   const guide = guideFor(dest.code);
+  // Payee details are stable per country pair (the demo story refers to them);
+  // the sample spending is drawn fresh for every session, so "Start over" really starts over.
   const rand = seeded(`${home.code}-${dest.code}`);
+  const sessionId = uid("sess");
+  const spendRand = seeded(sessionId);
   const dc = dest.currency;
   const hc = home.currency;
 
@@ -243,13 +249,21 @@ export function createInitialState(profile: Profile, now = new Date()): LedgerSt
     id: uid("tx"), ts: new Date(now.getTime() - 28 * day).toISOString(), currency: dc,
     amount: -roundTo(dc, monthly * 0.38), category: "rent", description: "Monthly rent", counterparty: "Campus Residence Landlord",
   });
+  // Each category's 30-day total is set relative to its budget: food a little over
+  // (the one "over budget" story), everything else comfortably under, so a fresh
+  // session looks like a real student's month rather than a run of red bars.
+  const budgetShare: Partial<Record<Category, number>> = { food: 0.25, transport: 0.07, entertainment: 0.07, shopping: 0.08 };
   for (const [cat, share, desc] of shares) {
     const n = cat === "food" ? 14 : cat === "transport" ? 6 : cat === "phone" ? 1 : 3;
+    const ratio = cat === "food" ? 1.05 + spendRand() * 0.15 : 0.55 + spendRand() * 0.4;
+    const total = monthly * (budgetShare[cat] ?? share) * (budgetShare[cat] ? ratio : 0.8 + spendRand() * 0.4);
+    const weights = Array.from({ length: n }, () => 0.6 + spendRand() * 0.8);
+    const sum = weights.reduce((x, y) => x + y, 0);
     for (let i = 0; i < n; i++) {
-      const amt = (monthly * share) / n * (0.6 + rand() * 0.8);
+      rand(); rand(); // keep the payee sequence unchanged
       txns.push({
-        id: uid("tx"), ts: new Date(now.getTime() - Math.floor(rand() * 29 + 1) * day).toISOString(),
-        currency: dc, amount: -roundTo(dc, amt), category: cat, description: desc,
+        id: uid("tx"), ts: new Date(now.getTime() - Math.floor(spendRand() * 29 + 1) * day).toISOString(),
+        currency: dc, amount: -roundTo(dc, (total * weights[i]) / sum), category: cat, description: desc,
       });
     }
   }
@@ -283,7 +297,7 @@ export function createInitialState(profile: Profile, now = new Date()): LedgerSt
 
   return {
     v: 1,
-    sessionId: uid("sess"),
+    sessionId,
     createdAt: now.toISOString(),
     profile: { ...profile, university },
     accounts, transactions: txns, payees, budgets,
@@ -391,3 +405,78 @@ export function executeAddPayee(state: LedgerState, p: AddPayeeParams, now = new
   return payee;
 }
 
+
+// ---------------------------------------------------------------------------
+// Logging money in and out by hand. An expense records money the student already
+// spent; income records money they received (allowance, part-time job,
+// scholarship). Nothing is sent to anyone, so neither needs an approval card.
+// The same rules apply whether it comes from the form or from chat.
+// ---------------------------------------------------------------------------
+
+export type EntryType = "expense" | "income";
+
+export interface EntryInput {
+  type: EntryType;
+  amount: number;
+  currency: CurrencyCode;
+  /** Spending category for expenses; ignored for income. */
+  category?: Category;
+  note: string;
+  /** YYYY-MM-DD; defaults to today. */
+  date?: string;
+}
+
+export const ENTRY_MAX_DAYS_BACK = 90;
+/** Sanity cap for one income entry, so a typo can't add a fortune to the sandbox. */
+export const INCOME_MAX_USD = 10_000;
+
+export function recordEntry(
+  state: LedgerState, e: EntryInput, via: "form" | "chat", now = new Date(),
+): { ok: true; txn: Txn } | { ok: false; message: string } {
+  const income = e.type === "income";
+  const category: Category = income ? "income" : e.category ?? "other";
+  if (!income && !SPEND_CATEGORIES.includes(category)) return { ok: false, message: "Choose a spending category." };
+  if (!(e.amount > 0)) return { ok: false, message: "Enter an amount above zero." };
+  const acct = getAccount(state, e.currency);
+  if (!acct) return { ok: false, message: `You don't have a ${e.currency} wallet.` };
+  const usd = toUsd(e.currency, e.amount, now);
+  if (income) {
+    if (usd > INCOME_MAX_USD) return { ok: false, message: `One income entry can be at most USD ${INCOME_MAX_USD.toLocaleString("en")}. Check the amount.` };
+  } else {
+    const cap = Math.min(state.settings.perTxnLimitUsd, 5_000);
+    if (usd > cap) return { ok: false, message: `That's more than your per-payment limit (USD ${cap.toLocaleString("en")}). Check the amount.` };
+    if (acct.balance < e.amount) return { ok: false, message: `That's more than your ${e.currency} balance.` };
+  }
+  let ts = now;
+  if (e.date) {
+    const d = new Date(`${e.date}T12:00:00Z`);
+    if (Number.isNaN(d.getTime())) return { ok: false, message: "That date isn't valid." };
+    if (d.getTime() > now.getTime() + 86_400_000) return { ok: false, message: "The date can't be in the future." };
+    if (now.getTime() - d.getTime() > ENTRY_MAX_DAYS_BACK * 86_400_000) return { ok: false, message: `Only the last ${ENTRY_MAX_DAYS_BACK} days can be logged.` };
+    ts = e.date === now.toISOString().slice(0, 10) ? now : d;
+  }
+  const amount = roundTo(e.currency, e.amount);
+  const signed = income ? amount : -amount;
+  acct.balance = roundTo(e.currency, acct.balance + signed);
+  const description = e.note.trim().slice(0, 80) || category;
+  const txn: Txn = { id: uid("tx"), ts: ts.toISOString(), currency: e.currency, amount: signed, category, description, logged: via };
+  state.transactions.push(txn);
+  state.transactions.sort((a, b) => b.ts.localeCompare(a.ts));
+  if (state.transactions.length > MAX_TXNS) state.transactions.length = MAX_TXNS;
+  audit(state, {
+    actor: via === "form" ? "user" : "agent", action: income ? "record_income" : "record_expense", tier: "L1", decision: "approved",
+    detail: `${income ? "+" : "−"}${CURRENCIES[e.currency].symbol}${amount.toLocaleString("en")} ${category}: ${description}`, refId: txn.id,
+  }, now);
+  return { ok: true, txn };
+}
+
+/** Remove an entry the student logged by mistake (reversing its effect); seeded and payment records can't be deleted. */
+export function deleteEntry(state: LedgerState, txnId: string, now = new Date()): boolean {
+  const i = state.transactions.findIndex((t) => t.id === txnId && t.logged);
+  if (i < 0) return false;
+  const [t] = state.transactions.splice(i, 1);
+  const acct = getAccount(state, t.currency);
+  if (acct) acct.balance = roundTo(t.currency, acct.balance - t.amount);
+  audit(state, { actor: "user", action: "delete_record", tier: "L1", decision: "approved", detail: `${t.amount > 0 ? "+" : "−"}${CURRENCIES[t.currency].symbol}${Math.abs(t.amount).toLocaleString("en")} ${t.category}: ${t.description}`, refId: t.id }, now);
+  return true;
+}

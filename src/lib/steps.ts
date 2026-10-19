@@ -44,6 +44,10 @@ export function stepsForTool(name: string, raw: string, isError: boolean): Agent
       return [{ key: name, status: "ok", detail: `1 ${out.from} = ${Number(out.rate).toFixed(4)} ${out.to} (${Number(out.vsAvg30Pct) > 0 ? "+" : ""}${out.vsAvg30Pct}% vs 30-day average)` }];
     case "analyze_budget":
       return [{ key: name, status: "ok", detail: `Spent ${Math.round(Number(out.totalSpent)).toLocaleString("en")} ${out.currency} in 30 days, budget ${Math.round(Number(out.totalBudget)).toLocaleString("en")} ${out.currency}.` }];
+    case "record_money":
+      return out.status === "recorded"
+        ? [{ key: name, status: "ok", detail: `${out.type === "income" ? "+" : "−"}${out.amount} ${out.currency} ${out.category}: ${out.note}` }]
+        : [{ key: name, status: "warn", detail: String(out.reason) }];
     case "report_security_concern":
       return [{ key: name, status: "warn" }];
     case "request_limit_change":

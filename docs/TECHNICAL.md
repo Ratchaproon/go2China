@@ -14,7 +14,9 @@
  ├─ POST /api/session   create sandbox ledger for a profile
  ├─ POST /api/chat      run one agent turn ──► Claude (Messages API, tool use)
  ├─ POST /api/actions   user approves / rejects a pending action
- └─ POST /api/settings  user changes language, agent mode, limits
+ ├─ POST /api/settings  user changes language, agent mode, limits (PIN + 24 h wait to raise)
+ ├─ POST /api/record    user logs income or spending, or deletes an entry (no AI call)
+ └─ POST /api/guide     user ticks checklist steps
         │
         ▼
  Core library (src/lib)
@@ -82,6 +84,7 @@ agent warns the student and advises them to call the university on a known numbe
 | `find_places_near_campus` | L0 | Demo places near campus with ratings, price vs. meal budget (monthly food budget ÷ 60), and Google Maps links |
 | `verify_payee_details` | L0 | Code compares bank details from a document or message with saved payees: match, mismatch (hard block), look-alike or new |
 | `request_limit_change` | L3 | Always refused and logged; the student changes limits in Settings (PIN plus a 24-hour wait for increases) |
+| `record_money` | L1 | Logs money the student already spent or received ("I spent 45 on dinner", "my parents sent me 5,000 baht"); same rules as the Wallet form |
 | `mark_guide_step` | L1 | Ticks a checklist step when the student says it's done (progress only) |
 | `set_budget` | L1 | Sets a category budget |
 | `propose_currency_conversion` | L2 | Conversion between the user's own accounts |

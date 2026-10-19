@@ -1,11 +1,11 @@
 "use client";
 import { useMemo, useState } from "react";
-import { ArrowLeftRight, Check, Download, LogOut } from "lucide-react";
+import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Check, Download, LogOut, Plus } from "lucide-react";
 import { CATEGORY_ICON, Ic } from "./icons";
 import { formatMoney, getCountry, roundTo } from "@/lib/countries";
 import { midRate, quote } from "@/lib/fx";
 import { CATEGORY_LABELS, LANGS, type Dict, fmt } from "@/lib/i18n";
-import type { AgentMode, AuditDecision, AuditEntry, Lang, LedgerState, Settings, Tier } from "@/lib/ledger";
+import { type AgentMode, type AuditDecision, type AuditEntry, type Category, type Lang, type LedgerState, type Settings, type Tier, SPEND_CATEGORIES } from "@/lib/ledger";
 import { budgetReport } from "@/lib/tools";
 import { DEMO_PIN, HARD_MAX, LIMIT_KEYS, type LimitKey } from "@/lib/limits";
 import { compareRoutes, savingVsWire } from "@/lib/routes";
@@ -71,12 +71,104 @@ export function topUpSuggestion(state: LedgerState, report = budgetReport(state)
   return { hc, dc, destBal, daily, runwayDays, q, homeAmt, receive, overLimit, over };
 }
 
+export interface ExpenseBody {
+  type: "expense" | "income";
+  amount: number;
+  currency: string;
+  category?: Category;
+  note: string;
+  date: string;
+}
+
+/** Log money you already spent or received. Saves straight to the wallet: no AI call, so it's instant and free. */
+function ExpenseForm({
+  state, lang, d, busy, onSave, onClose,
+}: { state: LedgerState; lang: Lang; d: Dict; busy: boolean; onSave: (b: ExpenseBody) => Promise<SaveResult>; onClose: () => void }) {
+  const dc = getCountry(state.profile.destCountry).currency;
+  const today = new Date().toISOString().slice(0, 10);
+  const [b, setB] = useState<ExpenseBody>({ type: "expense", amount: 0, currency: dc, category: "food", note: "", date: today });
+  const income = b.type === "income";
+  const [amountText, setAmountText] = useState("");
+  const [err, setErr] = useState("");
+  const labels = CATEGORY_LABELS[lang];
+  const field = "mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-base text-text";
+  return (
+    <form
+      className="border-t border-border bg-surface-2 px-5 py-4"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setErr("");
+        const r = await onSave({ ...b, amount: Number(amountText), category: income ? undefined : b.category });
+        if (r.ok) onClose();
+        else setErr(r.message ?? d.errorGeneric);
+      }}
+    >
+      <div role="radiogroup" aria-label={d.addExpense} className="mb-3 inline-grid grid-cols-2 rounded-lg bg-surface p-1">
+        {(["expense", "income"] as const).map((tp) => (
+          <button
+            key={tp} type="button" role="radio" aria-checked={b.type === tp}
+            onClick={() => setB({ ...b, type: tp, currency: tp === "income" && b.type !== "income" ? state.accounts[0].currency : b.type === "income" && tp === "expense" ? dc : b.currency })}
+            className={`flex items-center gap-1.5 rounded-md px-4 py-1.5 text-sm font-semibold ${b.type === tp ? (tp === "income" ? "bg-ok-soft text-ok" : "bg-brand-soft text-brand") : "text-muted"}`}
+          >
+            {tp === "income" ? <ArrowDownLeft aria-hidden className="h-4 w-4" /> : <ArrowUpRight aria-hidden className="h-4 w-4" />}
+            {tp === "income" ? d.typeIncome : d.typeExpense}
+          </button>
+        ))}
+      </div>
+      <div className={`grid grid-cols-2 gap-3 ${income ? "sm:grid-cols-[1.2fr_1.6fr_1fr]" : "sm:grid-cols-[1.2fr_0.8fr_1fr_1fr]"}`}>
+        <label className="block text-sm font-medium text-muted">
+          {d.expenseAmount}
+          <div className="mt-1 flex">
+            <select aria-label="Currency" value={b.currency} onChange={(e) => setB({ ...b, currency: e.target.value })} className="rounded-l-lg border border-r-0 border-border bg-surface px-2 text-base text-text">
+              {state.accounts.map((a) => <option key={a.currency}>{a.currency}</option>)}
+            </select>
+            <input
+              inputMode="decimal" autoFocus required value={amountText}
+              onChange={(e) => setAmountText(e.target.value.replace(/[^\d.]/g, ""))}
+              className="tabular min-w-0 flex-1 rounded-r-lg border border-border bg-surface px-3 py-2 text-base text-text"
+            />
+          </div>
+        </label>
+        {!income && (
+          <label className="block text-sm font-medium text-muted">
+            {d.expenseCategory}
+            <select value={b.category} onChange={(e) => setB({ ...b, category: e.target.value as Category })} className={field}>
+              {SPEND_CATEGORIES.map((c) => <option key={c} value={c}>{labels[c] ?? c}</option>)}
+            </select>
+          </label>
+        )}
+        <label className="col-span-2 block text-sm font-medium text-muted sm:col-span-1">
+          {d.expenseNote}
+          <input value={b.note} maxLength={80} placeholder={income ? d.incomeNotePh : d.expenseNotePh} onChange={(e) => setB({ ...b, note: e.target.value })} className={field} />
+        </label>
+        <label className="block text-sm font-medium text-muted">
+          {d.expenseDate}
+          <input
+            type="date" value={b.date} max={today}
+            min={new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10)}
+            onChange={(e) => setB({ ...b, date: e.target.value })} className={field}
+          />
+        </label>
+      </div>
+      {err && <p className="mt-2 text-sm text-bad" role="alert">{err}</p>}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <button disabled={busy || !(Number(amountText) > 0)} className="rounded-lg bg-ink px-4 py-2 font-semibold text-on-ink disabled:opacity-50">{d.saveExpense}</button>
+        <button type="button" onClick={onClose} className="rounded-lg border border-border bg-surface px-4 py-2 font-semibold">{d.cancel}</button>
+        <p className="text-xs text-muted sm:ml-2">{d.expenseTip}</p>
+      </div>
+    </form>
+  );
+}
+
 export function WalletPanel({
-  state, lang, d, busy, onDecide, onAsk,
+  state, lang, d, busy, onDecide, onAsk, onExpense, onDeleteExpense,
 }: {
   state: LedgerState; lang: Lang; d: Dict; busy: boolean;
   onDecide: (id: string, approve: boolean) => void; onAsk: (text: string) => void;
+  onExpense: (b: ExpenseBody) => Promise<SaveResult>; onDeleteExpense: (id: string) => Promise<SaveResult>;
 }) {
+  const [adding, setAdding] = useState(false);
+  const [confirmDel, setConfirmDel] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState(false);
   const labels = CATEGORY_LABELS[lang];
   const hc = getCountry(state.profile.homeCountry).currency;
@@ -208,7 +300,15 @@ export function WalletPanel({
       </section>
 
       <section className="overflow-hidden rounded-2xl border border-border bg-surface">
-        <h2 className="px-5 pb-2 pt-4 text-lg font-bold">{d.transactions}</h2>
+        <div className="flex items-center justify-between gap-2 px-5 pb-2 pt-4">
+          <h2 className="text-lg font-bold">{d.transactions}</h2>
+          {!adding && (
+            <button onClick={() => setAdding(true)} className="flex items-center gap-1.5 rounded-lg bg-ink px-3.5 py-2 text-sm font-semibold text-on-ink">
+              <Plus aria-hidden className="h-4 w-4" />{d.addExpense}
+            </button>
+          )}
+        </div>
+        {adding && <ExpenseForm state={state} lang={lang} d={d} busy={busy} onSave={onExpense} onClose={() => setAdding(false)} />}
         <ul className="divide-y divide-border border-t border-border">
           {state.transactions.slice(0, 30).map((tx) => {
             const Icon = CATEGORY_ICON[tx.category];
@@ -219,11 +319,24 @@ export function WalletPanel({
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium">{tx.description}</p>
-                  <p className="text-xs text-muted">{new Date(tx.ts).toLocaleDateString(lang, { day: "numeric", month: "short" })}, {labels[tx.category] ?? tx.category}</p>
+                  <p className="text-xs text-muted">
+                    {new Date(tx.ts).toLocaleDateString(lang, { day: "numeric", month: "short" })}, {labels[tx.category] ?? tx.category}
+                    {tx.logged && <span className="ml-2 rounded bg-brand-soft px-1.5 py-px text-brand">{d.loggedByYou}</span>}
+                  </p>
                 </div>
-                <span className={`tabular shrink-0 font-semibold ${tx.amount < 0 ? "" : "text-ok"}`}>
-                  {tx.amount > 0 ? "+" : ""}{formatMoney(tx.currency, tx.amount, lang)}
-                </span>
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                  <span className={`tabular font-semibold ${tx.amount < 0 ? "" : "text-ok"}`}>
+                    {tx.amount > 0 ? "+" : ""}{formatMoney(tx.currency, tx.amount, lang)}
+                  </span>
+                  {tx.logged && (confirmDel === tx.id ? (
+                    <span className="flex gap-2 text-xs">
+                      <button disabled={busy} onClick={async () => { await onDeleteExpense(tx.id); setConfirmDel(null); }} className="font-semibold text-bad">{d.confirmDelete}</button>
+                      <button onClick={() => setConfirmDel(null)} className="font-semibold text-muted">{d.cancel}</button>
+                    </span>
+                  ) : (
+                    <button onClick={() => setConfirmDel(tx.id)} className="text-xs font-semibold text-muted hover:text-bad">{d.deleteEntry}</button>
+                  ))}
+                </div>
               </li>
             );
           })}

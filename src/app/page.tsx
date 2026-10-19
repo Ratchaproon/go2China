@@ -18,7 +18,7 @@ import { t } from "@/lib/i18n";
 import { renderInvoice } from "@/lib/invoice";
 import type { Lang, LedgerState, Settings } from "@/lib/ledger";
 import type { LimitKey } from "@/lib/limits";
-import type { SaveResult } from "@/components/Panels";
+import type { ExpenseBody, SaveResult } from "@/components/Panels";
 import type { UiCard } from "@/lib/tools";
 import type { AgentStep } from "@/lib/steps";
 
@@ -237,6 +237,21 @@ export default function Home() {
     }
   }
 
+  async function expenseCall(body: ExpenseBody | { deleteId: string }): Promise<SaveResult> {
+    if (!token) return { ok: false, message: d.errorGeneric };
+    setBusy(true);
+    try {
+      const r = await api<{ token: string }>("/api/record", { token, ...body });
+      setToken(r.token);
+      return { ok: true };
+    } catch (e) {
+      handleAuthFailure(e as Error);
+      return { ok: false, message: (e as Error).message };
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function toggleStep(stepId: string, done: boolean) {
     if (!token) return;
     setBusy(true);
@@ -439,7 +454,10 @@ export default function Home() {
             </div>
           </>
         )}
-        {tab === "wallet" && <WalletPanel state={state} lang={lang} d={d} busy={busy} onDecide={decideAction} onAsk={ask} />}
+        {tab === "wallet" && <WalletPanel
+            state={state} lang={lang} d={d} busy={busy} onDecide={decideAction} onAsk={ask}
+            onExpense={(b) => expenseCall(b)} onDeleteExpense={(id) => expenseCall({ deleteId: id })}
+          />}
         {tab === "guide" && <GuidePanel state={state} d={d} busy={busy} onToggle={toggleStep} onExplain={explainStep} />}
         {tab === "places" && <PlacesPanel state={state} lang={lang} d={d} />}
         {tab === "activity" && <ActivityPanel state={state} lang={lang} d={d} />}

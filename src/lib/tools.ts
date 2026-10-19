@@ -5,7 +5,7 @@ import { quote, toUsd } from "./fx";
 import { compareRoutes, getRoute, priceRoute, ROUTES } from "./routes";
 import {
   type ActionParams, type Category, type LedgerState, type PendingAction, type Tier,
-  SPEND_CATEGORIES, audit, executeAddPayee, executeConvert, executeTransfer, maskAccount, guideProfile, uid,
+  SPEND_CATEGORIES, audit, executeAddPayee, recordEntry, executeConvert, executeTransfer, maskAccount, guideProfile, uid,
 } from "./ledger";
 import { checkPayeeDetails, evaluate } from "./policy";
 import { campusFor, mapsLinks, mealBudget, PLACE_CATEGORIES, type PlaceCategory, searchPlaces } from "./places";
@@ -58,6 +58,14 @@ const schemas = {
   }).strict(),
   list_pending_actions: z.object({}).strict(),
   request_limit_change: z.object({ what: z.string().max(200) }).strict(),
+  record_money: z.object({
+    type: z.enum(["expense", "income"]),
+    amount: z.number().positive(),
+    currency: currency.optional(),
+    category: z.enum(SPEND_CATEGORIES as [Category, ...Category[]]).optional(),
+    note: z.string().max(80),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  }).strict(),
   verify_payee_details: z.object({
     name: z.string().min(2).max(120), account_number: z.string().min(4).max(40),
     source: z.enum(["uploaded_document", "user_message"]),
@@ -92,6 +100,7 @@ export const TOOL_TIERS: Record<ToolName, Tier> = {
   list_pending_actions: "L0",
   verify_payee_details: "L0",
   request_limit_change: "L3",
+  record_money: "L1",
   report_security_concern: "L0",
   get_study_abroad_guide: "L0",
   find_places_near_campus: "L0",
@@ -230,6 +239,22 @@ export const TOOL_DEFS: Anthropic.Tool[] = [
       },
       required: ["name", "kind", "country", "currency", "bank_name", "account_number", "source", "reason"],
       additionalProperties: false,
+    },
+  },
+  {
+    name: "record_money",
+    description: "Log money the student already spent or received, when they tell you (e.g. \"I spent 45 yuan on dinner\", \"my parents sent me 5,000 baht\"). type=expense needs a spending category; type=income is for allowance, part-time pay, scholarships, refunds. Tier L1: it records money in their own wallet and updates budgets; nothing is sent to anyone. Currency defaults to the destination currency; date (YYYY-MM-DD) defaults to today. Don't use this for payments to other people or for currency conversions.",
+    input_schema: {
+      type: "object",
+      properties: {
+        type: { type: "string", enum: ["expense", "income"] },
+        amount: { type: "number" },
+        currency: { type: "string" },
+        category: { type: "string", enum: SPEND_CATEGORIES, description: "Required for expenses" },
+        note: { type: "string", description: "Short description, e.g. 'Dinner with classmates' or 'Allowance from family'" },
+        date: { type: "string", description: "YYYY-MM-DD, only if not today" },
+      },
+      required: ["type", "amount", "note"], additionalProperties: false,
     },
   },
   {
@@ -536,6 +561,18 @@ const handlers: Handlers = {
       id: p.id, name: p.name, kind: p.kind, country: p.country, currency: p.currency,
       bank: p.bankName, account: maskAccount(p.accountNumber), verified: p.verified, added_by: p.addedBy,
     }));
+  },
+
+  record_money({ type, amount, currency: cur, category, note, date }, ctx) {
+    const c = (cur as CurrencyCode | undefined) ?? getCountry(ctx.state.profile.destCountry).currency;
+    const res = recordEntry(ctx.state, { type, amount, currency: c, category, note, date }, "chat", ctx.now);
+    if (!res.ok) return { status: "not_recorded", reason: res.message };
+    const acct = ctx.state.accounts.find((a) => a.currency === c);
+    const b = type === "expense" ? budgetReport(ctx.state, ctx.now).categories.find((x) => x.category === res.txn.category) : undefined;
+    return {
+      status: "recorded", type, amount, currency: c, category: res.txn.category, note, date: res.txn.ts.slice(0, 10),
+      new_balance: acct?.balance, category_spent_30d: b?.spent, category_budget: b?.limit, category_pct_of_budget: b?.pct,
+    };
   },
 
   request_limit_change({ what }, ctx) {
